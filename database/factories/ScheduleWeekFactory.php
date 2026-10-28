@@ -17,7 +17,7 @@ class ScheduleWeekFactory extends Factory
     {
         return [
             'branch_id' => Branch::factory(),
-            'week_start' => now('America/Vancouver')->startOfWeek()->toDateString(),
+            'week_start' => now('Canada/Pacific')->startOfWeek()->toDateString(),
             'is_published' => false,
         ];
     }

@@ -23,7 +23,9 @@ class EmployeeController extends Controller
         if ($search = $request->string('q')->trim()->toString()) {
             $query->where(function ($q) use ($search) {
                 $q->where('name', 'like', "%{$search}%")
-                    ->orWhere('email', 'like', "%{$search}%");
+                    ->orWhere('email', 'like', "%{$search}%")
+                    ->orWhere('phone', 'like', "%{$search}%")
+                    ->orWhereHas('branches', fn ($b) => $b->where('name', 'like', "%{$search}%"));
             });
         }
 
@@ -31,7 +33,15 @@ class EmployeeController extends Controller
             $query->whereHas('branches', fn ($q) => $q->where('branches.id', $request->integer('branch_id')));
         }
 
-        if ($request->filled('active')) {
+        // Support both 'status' ('active' / 'inactive') and 'active' (boolean / int)
+        if ($request->filled('status')) {
+            $status = strtolower($request->string('status')->trim()->toString());
+            if ($status === 'active') {
+                $query->where('is_active', true);
+            } elseif ($status === 'inactive') {
+                $query->where('is_active', false);
+            }
+        } elseif ($request->has('active') && $request->input('active') !== '' && $request->input('active') !== null) {
             $query->where('is_active', $request->boolean('active'));
         }
 
@@ -141,17 +151,43 @@ class EmployeeController extends Controller
         return back()->with('status', $statusMsg);
     }
 
-    public function resetPassword(User $employee): RedirectResponse
+    public function showResetPassword(User $employee): View
     {
         abort_unless($employee->isEmployee(), 404);
         $this->authorize('resetPassword', $employee);
 
-        $password = Str::password(16);
+        return view('admin.employees.reset-password', [
+            'employee' => $employee->load('branches'),
+        ]);
+    }
+
+    public function resetPassword(Request $request, User $employee): RedirectResponse
+    {
+        abort_unless($employee->isEmployee(), 404);
+        $this->authorize('resetPassword', $employee);
+
+        if ($request->filled('password')) {
+            $validated = $request->validate([
+                'password' => ['required', 'string', 'min:8', 'confirmed'],
+                'must_change_password' => ['sometimes', 'boolean'],
+            ]);
+
+            $password = $validated['password'];
+            $mustChange = $request->boolean('must_change_password', false);
+        } else {
+            $password = Str::password(16);
+            $mustChange = true;
+        }
+
         $employee->update([
             'password' => Hash::make($password),
-            'must_change_password' => true,
+            'must_change_password' => $mustChange,
         ]);
 
-        return back()->with('status', "Password reset. New temporary password: {$password}");
+        $msg = app()->getLocale() === 'ar'
+            ? "تم تعيين كلمة المرور الجديدة للموظف ({$employee->name}) بنجاح. كلمة المرور: {$password}"
+            : "Password updated successfully for {$employee->name}. New password: {$password}";
+
+        return redirect()->route('admin.employees.show', $employee)->with('status', $msg);
     }
 }

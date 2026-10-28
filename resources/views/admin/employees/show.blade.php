@@ -51,13 +51,13 @@
                     </button>
                 </form>
 
-                <form action="{{ route('admin.employees.reset-password', $employee) }}" method="POST" class="inline"
-                      onsubmit="return confirm('{{ app()->getLocale() === 'ar' ? 'هل تريد إعادة تعيين كلمة المرور لهذا الموظف؟' : 'Reset password for this employee?' }}');">
-                    @csrf
-                    <button type="submit" class="btn-secondary text-xs text-amber-400 hover:text-amber-300">
-                        {{ app()->getLocale() === 'ar' ? 'إعادة تعيين كلمة المرور' : 'Reset Password' }}
-                    </button>
-                </form>
+                <a href="{{ route('admin.employees.reset-password', $employee) }}"
+                   class="btn-secondary text-xs text-amber-400 hover:text-amber-300 flex items-center gap-1.5">
+                    <svg class="w-4 h-4 inline-block" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+                    </svg>
+                    <span>{{ app()->getLocale() === 'ar' ? 'تعيين كلمة المرور' : 'Reset Password' }}</span>
+                </a>
             </div>
         </div>
     </x-slot>

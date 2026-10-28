@@ -13,7 +13,7 @@ return new class extends Migration
             $table->string('name');
             $table->string('slug')->unique();
             $table->string('city');
-            $table->string('timezone')->default('America/Vancouver');
+            $table->string('timezone')->default('Canada/Pacific');
             $table->timestamps();
         });
     }

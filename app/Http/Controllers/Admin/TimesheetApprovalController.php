@@ -22,7 +22,8 @@ class TimesheetApprovalController extends Controller
 
         if ($request->filled('status')) {
             $query->where('status', $request->string('status'));
-        } else {
+        } elseif (! $request->has('status')) {
+            // Only default to pending if the filter form hasn't been submitted
             $query->where('status', TimesheetStatus::PendingApproval);
         }
 
@@ -32,6 +33,14 @@ class TimesheetApprovalController extends Controller
 
         if ($request->filled('user_id')) {
             $query->where('user_id', $request->integer('user_id'));
+        }
+
+        if ($request->filled('from_date')) {
+            $query->whereDate('work_date', '>=', $request->input('from_date'));
+        }
+
+        if ($request->filled('to_date')) {
+            $query->whereDate('work_date', '<=', $request->input('to_date'));
         }
 
         return view('admin.timesheets.index', [

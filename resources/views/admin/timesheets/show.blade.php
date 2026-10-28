@@ -92,11 +92,11 @@
                         <div class="grid grid-cols-2 gap-3">
                             <div>
                                 <x-input-label for="start_time" value="Start Time" />
-                                <x-text-input type="time" step="900" name="start_time" id="start_time" :value="$entry->starts_at->timezone('America/Vancouver')->format('H:i')" required />
+                                <x-text-input type="time" step="900" name="start_time" id="start_time" :value="$entry->starts_at->timezone('Canada/Pacific')->format('H:i')" required />
                             </div>
                             <div>
                                 <x-input-label for="end_time" value="End Time" />
-                                <x-text-input type="time" step="900" name="end_time" id="end_time" :value="$entry->ends_at->timezone('America/Vancouver')->format('H:i')" required />
+                                <x-text-input type="time" step="900" name="end_time" id="end_time" :value="$entry->ends_at->timezone('Canada/Pacific')->format('H:i')" required />
                             </div>
                         </div>
                         <div>
@@ -187,7 +187,7 @@
                             <div class="flex items-center gap-2 flex-wrap">
                                 <span class="text-sm font-medium text-white">{{ $log->action }}</span>
                                 <span class="text-xs text-dark-400">by {{ $log->performer->name }}</span>
-                                <span class="text-xs text-dark-500">{{ $log->created_at->timezone('America/Vancouver')->format('M j, Y g:i A') }}</span>
+                                <span class="text-xs text-dark-500">{{ $log->created_at->timezone('Canada/Pacific')->format('M j, Y g:i A') }}</span>
                             </div>
                             @if($log->notes)
                                 <p class="text-xs text-dark-400 mt-0.5">{{ $log->notes }}</p>

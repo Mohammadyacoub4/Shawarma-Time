@@ -42,6 +42,10 @@ class ProfileController extends Controller
      */
     public function destroy(Request $request): RedirectResponse
     {
+        if (! $request->user()->isAdmin()) {
+            abort(403, 'غير مسموح للموظفين بحذف حساباتهم. يرجى مراجعة إدارة المطعم / Employees cannot delete their accounts.');
+        }
+
         $request->validateWithBag('userDeletion', [
             'password' => ['required', 'current_password'],
         ]);

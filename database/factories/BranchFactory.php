@@ -21,7 +21,7 @@ class BranchFactory extends Factory
             'name' => "Shawarma Time — {$name}",
             'slug' => Str::slug($name),
             'city' => "{$name}, BC",
-            'timezone' => 'America/Vancouver',
+            'timezone' => 'Canada/Pacific',
         ];
     }
 }

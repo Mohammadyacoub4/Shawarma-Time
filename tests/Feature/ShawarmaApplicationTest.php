@@ -188,6 +188,108 @@ class ShawarmaApplicationTest extends TestCase
         $this->assertSame($this->carbonMonday(), $weekStart->dayOfWeek);
     }
 
+    public function test_branch_default_timezone_is_canada_pacific(): void
+    {
+        $this->assertSame('Canada/Pacific', BranchTime::DEFAULT_TIMEZONE);
+        $this->assertSame('Canada/Pacific', $this->richmond->timezone);
+        $this->assertSame('Canada/Pacific', $this->vancouver->timezone);
+    }
+
+    public function test_admin_can_view_employee_reset_password_page(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $employee = $this->makeEmployee([$this->richmond->id]);
+
+        $response = $this->actingAs($admin)->get(route('admin.employees.reset-password', $employee));
+
+        $response->assertOk();
+        $response->assertSee($employee->name);
+        $response->assertSee('name="password"', false);
+    }
+
+    public function test_admin_can_set_custom_password_for_employee(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $employee = $this->makeEmployee([$this->richmond->id]);
+
+        $response = $this->actingAs($admin)->post(route('admin.employees.reset-password.update', $employee), [
+            'password' => 'NewCustomPass123!',
+            'password_confirmation' => 'NewCustomPass123!',
+            'must_change_password' => '1',
+        ]);
+
+        $response->assertRedirect(route('admin.employees.show', $employee));
+        $employee->refresh();
+        $this->assertTrue(\Illuminate\Support\Facades\Hash::check('NewCustomPass123!', $employee->password));
+        $this->assertTrue((bool) $employee->must_change_password);
+    }
+
+    public function test_employee_cannot_access_employee_reset_password_page(): void
+    {
+        $employee1 = $this->makeEmployee([$this->richmond->id]);
+        $employee2 = $this->makeEmployee([$this->vancouver->id]);
+
+        $response = $this->actingAs($employee1)->get(route('admin.employees.reset-password', $employee2));
+
+        $response->assertForbidden();
+    }
+
+    public function test_admin_can_filter_employees_by_status(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $activeEmp = $this->makeEmployee([$this->richmond->id], inactive: false);
+        $activeEmp->update(['name' => 'Active Worker']);
+        $inactiveEmp = $this->makeEmployee([$this->richmond->id], inactive: true);
+        $inactiveEmp->update(['name' => 'Inactive Worker']);
+
+        // Filter active
+        $responseActive = $this->actingAs($admin)->get(route('admin.employees.index', ['status' => 'active']));
+        $responseActive->assertOk();
+        $responseActive->assertSee('Active Worker');
+        $responseActive->assertDontSee('Inactive Worker');
+
+        // Filter inactive
+        $responseInactive = $this->actingAs($admin)->get(route('admin.employees.index', ['status' => 'inactive']));
+        $responseInactive->assertOk();
+        $responseInactive->assertSee('Inactive Worker');
+        $responseInactive->assertDontSee('Active Worker');
+    }
+
+    public function test_admin_can_filter_employees_by_branch(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $richmondEmp = $this->makeEmployee([$this->richmond->id]);
+        $richmondEmp->update(['name' => 'Richmond Staff']);
+        $vancouverEmp = $this->makeEmployee([$this->vancouver->id]);
+        $vancouverEmp->update(['name' => 'Vancouver Staff']);
+
+        $response = $this->actingAs($admin)->get(route('admin.employees.index', ['branch_id' => $this->richmond->id]));
+        $response->assertOk();
+        $response->assertSee('Richmond Staff');
+        $response->assertDontSee('Vancouver Staff');
+    }
+
+    public function test_admin_can_search_employees_by_name_phone_or_email(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $emp = $this->makeEmployee([$this->richmond->id]);
+        $emp->update([
+            'name' => 'Unique Employee',
+            'phone' => '6045551234',
+            'email' => 'unique.staff@shawarmatime.ca',
+        ]);
+
+        // Search by phone
+        $resPhone = $this->actingAs($admin)->get(route('admin.employees.index', ['q' => '6045551234']));
+        $resPhone->assertOk();
+        $resPhone->assertSee('Unique Employee');
+
+        // Search by email
+        $resEmail = $this->actingAs($admin)->get(route('admin.employees.index', ['q' => 'unique.staff']));
+        $resEmail->assertOk();
+        $resEmail->assertSee('Unique Employee');
+    }
+
     private function carbonMonday(): int
     {
         return \Carbon\Carbon::MONDAY;

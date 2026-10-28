@@ -18,7 +18,7 @@
                 <option value="">Unscheduled / not listed</option>
                 @foreach ($shifts as $shift)
                     <option value="{{ $shift->id }}" @selected(old('shift_id', $entry?->shift_id) == $shift->id)>
-                        {{ $shift->work_date->format('M j') }} · {{ $shift->branch->name }} · {{ $shift->starts_at->timezone('America/Vancouver')->format('g:i A') }}
+                        {{ $shift->work_date->format('M j') }} · {{ $shift->branch->name }} · {{ $shift->starts_at->timezone('Canada/Pacific')->format('g:i A') }}
                     </option>
                 @endforeach
             </select>
@@ -33,11 +33,11 @@
     <div class="grid grid-cols-2 gap-3">
         <div>
             <x-input-label for="start_time" value="Actual start time" />
-            <x-text-input type="time" step="900" name="start_time" id="start_time" class="mt-1 w-full" :value="old('start_time', isset($entry) ? $entry->starts_at->timezone('America/Vancouver')->format('H:i') : '')" required />
+            <x-text-input type="time" step="900" name="start_time" id="start_time" class="mt-1 w-full" :value="old('start_time', isset($entry) ? $entry->starts_at->timezone('Canada/Pacific')->format('H:i') : '')" required />
         </div>
         <div>
             <x-input-label for="end_time" value="Actual end time" />
-            <x-text-input type="time" step="900" name="end_time" id="end_time" class="mt-1 w-full" :value="old('end_time', isset($entry) ? $entry->ends_at->timezone('America/Vancouver')->format('H:i') : '')" required />
+            <x-text-input type="time" step="900" name="end_time" id="end_time" class="mt-1 w-full" :value="old('end_time', isset($entry) ? $entry->ends_at->timezone('Canada/Pacific')->format('H:i') : '')" required />
         </div>
     </div>
 

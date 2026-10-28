@@ -63,7 +63,7 @@ class ProfileTest extends TestCase
 
     public function test_user_can_delete_their_account(): void
     {
-        $user = User::factory()->create();
+        $user = User::factory()->admin()->create();
 
         $response = $this
             ->actingAs($user)
@@ -81,7 +81,7 @@ class ProfileTest extends TestCase
 
     public function test_correct_password_must_be_provided_to_delete_account(): void
     {
-        $user = User::factory()->create();
+        $user = User::factory()->admin()->create();
 
         $response = $this
             ->actingAs($user)
@@ -95,5 +95,19 @@ class ProfileTest extends TestCase
             ->assertRedirect('/profile');
 
         $this->assertNotNull($user->fresh());
+    }
+
+    public function test_staff_employee_cannot_delete_their_account(): void
+    {
+        $employee = User::factory()->employee()->create();
+
+        $response = $this
+            ->actingAs($employee)
+            ->delete('/profile', [
+                'password' => 'password',
+            ]);
+
+        $response->assertForbidden();
+        $this->assertNotNull($employee->fresh());
     }
 }

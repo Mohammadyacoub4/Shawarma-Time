@@ -14,7 +14,7 @@ class BranchSeeder extends Seeder
             [
                 'name' => 'Shawarma Time — Richmond',
                 'city' => 'Richmond, BC',
-                'timezone' => 'America/Vancouver',
+                'timezone' => 'Canada/Pacific',
             ]
         );
 
@@ -23,7 +23,7 @@ class BranchSeeder extends Seeder
             [
                 'name' => 'Shawarma Time — Vancouver',
                 'city' => 'Vancouver, BC',
-                'timezone' => 'America/Vancouver',
+                'timezone' => 'Canada/Pacific',
             ]
         );
     }

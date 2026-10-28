@@ -15,34 +15,36 @@
         {{-- FILTERS --}}
         <div class="card">
             <div class="card-body">
-                <form method="GET" class="flex flex-wrap gap-3 items-end">
-                    <div class="flex-1 min-w-[180px]">
-                        <x-input-label for="q" value="Search by name or email" />
-                        <x-text-input id="q" name="q" value="{{ request('q') }}" placeholder="Type to search…" />
+                <form method="GET" action="{{ route('admin.employees.index') }}" class="flex flex-wrap gap-3 items-end">
+                    <div class="flex-1 min-w-[200px]">
+                        <x-input-label for="q" :value="app()->getLocale() === 'ar' ? 'البحث (الاسم، البريد، الهاتف)' : 'Search by name, email, or phone'" />
+                        <x-text-input id="q" name="q" value="{{ request('q') }}" placeholder="{{ app()->getLocale() === 'ar' ? 'اكتب للبحث...' : 'Type to search…' }}" />
                     </div>
                     <div class="min-w-[160px]">
-                        <x-input-label for="branch_id" value="Branch" />
+                        <x-input-label for="branch_id" :value="app()->getLocale() === 'ar' ? 'الفرع' : 'Branch'" />
                         <select id="branch_id" name="branch_id" class="form-select">
-                            <option value="">All branches</option>
+                            <option value="">{{ app()->getLocale() === 'ar' ? 'جميع الفروع' : 'All branches' }}</option>
                             @foreach ($branches as $branch)
                                 <option value="{{ $branch->id }}" @selected(request('branch_id') == $branch->id)>{{ $branch->name }}</option>
                             @endforeach
                         </select>
                     </div>
                     <div class="min-w-[140px]">
-                        <x-input-label for="status" value="Status" />
+                        <x-input-label for="status" :value="app()->getLocale() === 'ar' ? 'الحالة' : 'Status'" />
                         <select id="status" name="status" class="form-select">
-                            <option value="">All statuses</option>
-                            <option value="active"   @selected(request('status') === 'active')>Active</option>
-                            <option value="inactive" @selected(request('status') === 'inactive')>Inactive</option>
+                            <option value="">{{ app()->getLocale() === 'ar' ? 'جميع الحالات' : 'All statuses' }}</option>
+                            <option value="active"   @selected(request('status') === 'active')>{{ app()->getLocale() === 'ar' ? 'نشط' : 'Active' }}</option>
+                            <option value="inactive" @selected(request('status') === 'inactive')>{{ app()->getLocale() === 'ar' ? 'معطل' : 'Inactive' }}</option>
                         </select>
                     </div>
-                    <x-primary-button>
+                    <button type="submit" class="btn-primary flex items-center gap-1.5">
                         <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 15.803 7.5 7.5 0 0015.803 15.803z" /></svg>
-                        Search
-                    </x-primary-button>
-                    @if(request()->hasAny(['q', 'branch_id', 'status']))
-                        <a href="{{ route('admin.employees.index') }}" class="btn-secondary">Clear</a>
+                        <span>{{ app()->getLocale() === 'ar' ? 'بحث' : 'Search' }}</span>
+                    </button>
+                    @if(request()->filled('q') || request()->filled('branch_id') || request()->filled('status') || request()->filled('active'))
+                        <a href="{{ route('admin.employees.index') }}" class="btn-secondary">
+                            {{ app()->getLocale() === 'ar' ? 'إعادة ضبط' : 'Clear' }}
+                        </a>
                     @endif
                 </form>
             </div>
@@ -114,13 +116,10 @@
                                                 {{ $employee->is_active ? (app()->getLocale() === 'ar' ? 'تعطيل' : 'Deactivate') : (app()->getLocale() === 'ar' ? 'تفعيل' : 'Activate') }}
                                             </button>
                                         </form>
-                                        <form action="{{ route('admin.employees.reset-password', $employee) }}" method="POST"
-                                              class="inline" onsubmit="return confirm('{{ app()->getLocale() === 'ar' ? 'إعادة تعيين كلمة المرور؟' : 'Reset password for ' . addslashes($employee->name) . '?' }}');">
-                                            @csrf
-                                            <button type="submit" class="text-xs text-dark-500 hover:text-dark-300 font-medium transition-colors">
-                                                {{ app()->getLocale() === 'ar' ? 'إعادة تعيين' : 'Reset' }}
-                                            </button>
-                                        </form>
+                                        <a href="{{ route('admin.employees.reset-password', $employee) }}"
+                                           class="text-xs text-amber-500/80 hover:text-amber-400 font-medium transition-colors">
+                                            {{ app()->getLocale() === 'ar' ? 'كلمة المرور' : 'Password' }}
+                                        </a>
                                     </div>
                                 </td>
                             </tr>
@@ -128,7 +127,7 @@
                             <tr>
                                 <td colspan="6" class="py-12 text-center text-dark-500">
                                     <svg class="w-10 h-10 mx-auto mb-2 opacity-40" fill="none" viewBox="0 0 24 24" stroke-width="1" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z" /></svg>
-                                    <p class="text-sm">No employees found.</p>
+                                    <p class="text-sm">{{ app()->getLocale() === 'ar' ? 'لم يتم العثور على أي موظف يطابق معايير البحث.' : 'No employees found matching the filter criteria.' }}</p>
                                 </td>
                             </tr>
                         @endforelse

@@ -7,14 +7,14 @@ use Carbon\Carbon;
 use Carbon\CarbonInterface;
 
 /**
- * Branch-local calendar and datetime handling for America/Vancouver (both branches).
+ * Branch-local calendar and datetime handling for Canada/Pacific (both branches).
  *
  * Work dates and weekly boundaries use the branch timezone. Instants (starts_at / ends_at)
  * are stored in UTC in the database and converted at boundaries using the branch timezone.
  */
 class BranchTime
 {
-    public const DEFAULT_TIMEZONE = 'America/Vancouver';
+    public const DEFAULT_TIMEZONE = 'Canada/Pacific';
 
     public static function timezoneFor(?Branch $branch = null): string
     {
