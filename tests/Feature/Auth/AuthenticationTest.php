@@ -51,4 +51,36 @@ class AuthenticationTest extends TestCase
         $this->assertGuest();
         $response->assertRedirect('/');
     }
+
+    public function test_login_screen_does_not_contain_remember_me_checkbox(): void
+    {
+        $response = $this->get('/login');
+
+        $response->assertOk();
+        $response->assertDontSee('Remember me');
+        $response->assertDontSee('name="remember"', false);
+    }
+
+    public function test_login_does_not_create_persistent_remember_cookie_even_if_submitted(): void
+    {
+        $user = User::factory()->create();
+
+        $response = $this->post('/login', [
+            'email' => $user->email,
+            'password' => 'password',
+            'remember' => 'on',
+        ]);
+
+        $this->assertAuthenticated();
+        $response->assertRedirect(route('dashboard', absolute: false));
+
+        // Assert no remember cookie exists in response cookies
+        $recallerName = \Illuminate\Support\Facades\Auth::guard('web')->getRecallerName();
+        $response->assertCookieMissing($recallerName);
+    }
+
+    public function test_session_lifetime_is_configured_to_thirty_minutes(): void
+    {
+        $this->assertSame(30, (int) config('session.lifetime'));
+    }
 }

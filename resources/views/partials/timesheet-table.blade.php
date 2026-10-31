@@ -37,7 +37,7 @@
                             </span>
                         </td>
                         <td class="py-3 px-4 text-dark-200 font-mono text-xs">
-                            {{ $entry->starts_at?->timezone(config('app.timezone', 'Asia/Amman'))->format('g:i A') ?? '—' }}
+                            {{ $entry->starts_at?->timezone(App\Support\BranchTime::timezoneFor($entry->branch))->format('g:i A') ?? '—' }}
                             @if ($entry->is_late)
                                 <span class="badge bg-amber-500/10 text-amber-400 border border-amber-500/30 text-[10px] ml-1">
                                     {{ app()->getLocale() === 'ar' ? 'متأخر' : 'Late' }} (+{{ $entry->late_minutes }}m)
@@ -46,7 +46,7 @@
                         </td>
                         <td class="py-3 px-4 text-dark-200 font-mono text-xs">
                             @if($entry->ends_at)
-                                {{ $entry->ends_at->timezone(config('app.timezone', 'Asia/Amman'))->format('g:i A') }}
+                                {{ $entry->ends_at->timezone(App\Support\BranchTime::timezoneFor($entry->branch))->format('g:i A') }}
                             @else
                                 <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 animate-pulse">
                                     <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>

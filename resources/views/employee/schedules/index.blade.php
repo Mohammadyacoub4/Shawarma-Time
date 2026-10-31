@@ -153,7 +153,7 @@
                                     @foreach ($dayShifts as $shift)
                                         @php
                                             $isMe = $shift->user_id === auth()->id();
-                                            $shiftTz = $branch->timezone ?? 'Asia/Amman';
+                                            $shiftTz = App\Support\BranchTime::timezoneFor($branch);
                                             $startsFormatted = $shift->starts_at->timezone($shiftTz)->format('g:i A');
                                             $endsFormatted = $shift->ends_at->timezone($shiftTz)->format('g:i A');
                                             $isOvernight = $shift->starts_at->timezone($shiftTz)->format('d') !== $shift->ends_at->timezone($shiftTz)->format('d');

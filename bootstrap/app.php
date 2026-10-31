@@ -11,6 +11,13 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        $trustedProxies = env('TRUSTED_PROXIES');
+        if ($trustedProxies) {
+            $middleware->trustProxies(at: str_contains($trustedProxies, ',')
+                ? array_map('trim', explode(',', $trustedProxies))
+                : $trustedProxies);
+        }
+
         $middleware->web(append: [
             \App\Http\Middleware\SetLocale::class,
         ]);

@@ -63,6 +63,8 @@ class ProfileTest extends TestCase
 
     public function test_user_can_delete_their_account(): void
     {
+        // Ensure there is another admin so this is not the last remaining admin
+        User::factory()->admin()->create();
         $user = User::factory()->admin()->create();
 
         $response = $this
@@ -77,6 +79,24 @@ class ProfileTest extends TestCase
 
         $this->assertGuest();
         $this->assertNull($user->fresh());
+    }
+
+    public function test_last_remaining_admin_cannot_delete_their_account(): void
+    {
+        $onlyAdmin = User::factory()->admin()->create();
+
+        $response = $this
+            ->actingAs($onlyAdmin)
+            ->from('/profile')
+            ->delete('/profile', [
+                'password' => 'password',
+            ]);
+
+        $response
+            ->assertSessionHasErrorsIn('userDeletion', 'password')
+            ->assertRedirect('/profile');
+
+        $this->assertNotNull($onlyAdmin->fresh());
     }
 
     public function test_correct_password_must_be_provided_to_delete_account(): void

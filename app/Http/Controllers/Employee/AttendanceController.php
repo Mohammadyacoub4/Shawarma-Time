@@ -19,6 +19,10 @@ class AttendanceController extends Controller
 
         $user = $request->user();
 
+        if (! $user->isEmployee()) {
+            abort(403, 'تسجيل الدوام مخصص للموظفين فقط / Attendance actions are reserved for employees.');
+        }
+
         if (! $user->isAssignedToBranch($request->integer('branch_id'))) {
             $msg = 'أنت غير مسجل في هذا الفرع / You are not assigned to this branch.';
             return back()->with('error', $msg)->withErrors(['attendance' => $msg]);
@@ -46,6 +50,10 @@ class AttendanceController extends Controller
         ]);
 
         $user = $request->user();
+
+        if (! $user->isEmployee()) {
+            abort(403, 'تسجيل الدوام مخصص للموظفين فقط / Attendance actions are reserved for employees.');
+        }
 
         try {
             $service->clockOut(

@@ -18,7 +18,15 @@ class AdminDashboardController extends Controller
     public function __invoke(Request $request): View
     {
         $today = now(BranchTime::DEFAULT_TIMEZONE)->toDateString();
-        $selectedDate = $request->input('date', $today);
+        $dateParam = $request->query('date');
+        $selectedDate = $today;
+        if (is_string($dateParam) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateParam)) {
+            try {
+                $selectedDate = \Carbon\Carbon::parse($dateParam, BranchTime::DEFAULT_TIMEZONE)->toDateString();
+            } catch (\Exception) {
+                $selectedDate = $today;
+            }
+        }
         $weekStart = BranchTime::weekStart($selectedDate)->toDateString();
         $weekEnd = BranchTime::weekEnd(BranchTime::weekStart($selectedDate))->toDateString();
 

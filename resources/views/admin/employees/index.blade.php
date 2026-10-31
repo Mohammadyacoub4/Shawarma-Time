@@ -11,6 +11,7 @@
 
     <div class="space-y-5">
         <x-flash-messages />
+        <x-temporary-password-modal />
 
         {{-- FILTERS --}}
         <div class="card">

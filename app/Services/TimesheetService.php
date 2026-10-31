@@ -10,12 +10,14 @@ use App\Models\TimesheetEntry;
 use App\Models\User;
 use App\Support\BranchTime;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 use InvalidArgumentException;
 
 class TimesheetService
 {
     public function __construct(
         private readonly WorkPeriodCalculator $calculator,
+        private readonly TimesheetOverlapValidator $overlapValidator,
     ) {}
 
     public function clockIn(
@@ -26,14 +28,21 @@ class TimesheetService
         ?string $deviceInfo = null
     ): TimesheetEntry {
         return DB::transaction(function () use ($employee, $branchId, $notes, $ip, $deviceInfo) {
+            // STEP 2: Always acquire User row lock first
+            $lockedUser = User::where('id', $employee->id)->lockForUpdate()->firstOrFail();
+
+            if (! $lockedUser->isEmployee()) {
+                throw new InvalidArgumentException('Only employees can clock in.');
+            }
+
             $branch = Branch::findOrFail($branchId);
 
-            if (! $employee->isAssignedToBranch($branch->id)) {
+            if (! $lockedUser->isAssignedToBranch($branch->id)) {
                 throw new InvalidArgumentException('Employee is not assigned to this branch.');
             }
 
             // Lock and verify no active clock-in exists
-            $active = TimesheetEntry::where('user_id', $employee->id)
+            $active = TimesheetEntry::where('user_id', $lockedUser->id)
                 ->where(function ($q) {
                     $q->whereNull('ends_at')
                       ->orWhere('status', TimesheetStatus::ClockedIn);
@@ -51,11 +60,22 @@ class TimesheetService
             $workDate = $localNow->toDateString();
 
             // Look for matching scheduled shift for today
-            $shift = Shift::where('user_id', $employee->id)
+            $shift = Shift::where('user_id', $lockedUser->id)
                 ->where('branch_id', $branch->id)
                 ->whereDate('work_date', $workDate)
                 ->orderBy('starts_at')
                 ->first();
+
+            // Validate that clock-in start time doesn't already overlap with an approved or pending timesheet
+            // For a clock-in start instant, candidate ends_at is at least now() + 1 second
+            $candidateEndUtc = $now->copy()->addSecond();
+            $this->overlapValidator->validate(
+                userId: $lockedUser->id,
+                startsAtUtc: $now,
+                endsAtUtc: $candidateEndUtc,
+                ignoreEntryId: null,
+                shiftId: null
+            );
 
             $isLate = false;
             $lateMinutes = 0;
@@ -71,7 +91,7 @@ class TimesheetService
             }
 
             $entry = TimesheetEntry::create([
-                'user_id' => $employee->id,
+                'user_id' => $lockedUser->id,
                 'branch_id' => $branch->id,
                 'shift_id' => $shift?->id,
                 'work_date' => $workDate,
@@ -87,7 +107,7 @@ class TimesheetService
                 'device_info' => $deviceInfo,
             ]);
 
-            $this->log($entry, $employee, 'clocked_in', null, $entry->toArray(), $notes);
+            $this->log($entry, $lockedUser, 'clocked_in', null, $entry->toArray(), $notes);
 
             return $entry;
         });
@@ -98,7 +118,14 @@ class TimesheetService
         ?string $notes = null
     ): TimesheetEntry {
         return DB::transaction(function () use ($employee, $notes) {
-            $entry = TimesheetEntry::where('user_id', $employee->id)
+            // STEP 2: Lock User row first, then TimesheetEntry row
+            $lockedUser = User::where('id', $employee->id)->lockForUpdate()->firstOrFail();
+
+            if (! $lockedUser->isEmployee()) {
+                throw new InvalidArgumentException('Only employees can clock out.');
+            }
+
+            $entry = TimesheetEntry::where('user_id', $lockedUser->id)
                 ->where(function ($q) {
                     $q->whereNull('ends_at')
                       ->orWhere('status', TimesheetStatus::ClockedIn);
@@ -115,6 +142,15 @@ class TimesheetService
                 $now = $entry->starts_at->copy()->addMinute();
             }
 
+            // STEP 3: Validate completed interval against any other entries
+            $this->overlapValidator->validate(
+                userId: $lockedUser->id,
+                startsAtUtc: $entry->starts_at,
+                endsAtUtc: $now,
+                ignoreEntryId: $entry->id,
+                shiftId: null
+            );
+
             $totalMinutes = (int) $entry->starts_at->diffInMinutes($now);
             $old = $entry->only(['status', 'ends_at', 'total_minutes']);
 
@@ -130,7 +166,7 @@ class TimesheetService
                 'employee_notes' => $employeeNotes,
             ]);
 
-            $this->log($entry, $employee, 'clocked_out', $old, $entry->fresh()->toArray(), $notes);
+            $this->log($entry, $lockedUser, 'clocked_out', $old, $entry->fresh()->toArray(), $notes);
 
             return $entry;
         });
@@ -138,15 +174,32 @@ class TimesheetService
 
     /**
      * @param  array<string, mixed>  $data
+     * @throws ValidationException
      */
     public function submit(User $employee, array $data, ?TimesheetEntry $existing = null): TimesheetEntry
     {
         return DB::transaction(function () use ($employee, $data, $existing) {
-            $entry = $existing ?? new TimesheetEntry;
-            $old = $existing?->only(['work_date', 'starts_at', 'ends_at', 'total_minutes', 'status', 'branch_id', 'shift_id']);
+            // STEP 2: Always acquire User row lock first, then TimesheetEntry lock
+            $lockedUser = User::where('id', $employee->id)->lockForUpdate()->firstOrFail();
 
-            if ($existing && $existing->status !== TimesheetStatus::Rejected) {
-                throw new InvalidArgumentException('Only rejected entries can be resubmitted by employees.');
+            $entry = null;
+            $old = null;
+
+            if ($existing) {
+                $entry = TimesheetEntry::where('id', $existing->id)->lockForUpdate()->firstOrFail();
+
+                // Re-read and validate current state after locking
+                if ($entry->user_id !== $lockedUser->id) {
+                    throw new InvalidArgumentException('Unauthorized timesheet ownership.');
+                }
+
+                if ($entry->status !== TimesheetStatus::Rejected) {
+                    throw new InvalidArgumentException('Only rejected entries can be resubmitted by employees.');
+                }
+
+                $old = $entry->only(['work_date', 'starts_at', 'ends_at', 'total_minutes', 'status', 'branch_id', 'shift_id']);
+            } else {
+                $entry = new TimesheetEntry;
             }
 
             $branch = Branch::findOrFail($data['branch_id']);
@@ -157,10 +210,21 @@ class TimesheetService
                 $branch
             );
 
+            $shiftId = ! empty($data['shift_id']) ? (int) $data['shift_id'] : null;
+
+            // STEP 3: Overlap validation across all branches and duplicate shift check
+            $this->overlapValidator->validate(
+                userId: $lockedUser->id,
+                startsAtUtc: $period['starts_at'],
+                endsAtUtc: $period['ends_at'],
+                ignoreEntryId: $entry->id ?: null,
+                shiftId: $shiftId
+            );
+
             $entry->fill([
-                'user_id' => $employee->id,
+                'user_id' => $lockedUser->id,
                 'branch_id' => $data['branch_id'],
-                'shift_id' => $data['shift_id'] ?? null,
+                'shift_id' => $shiftId,
                 'work_date' => $period['work_date'],
                 'starts_at' => $period['starts_at'],
                 'ends_at' => $period['ends_at'],
@@ -174,7 +238,7 @@ class TimesheetService
             ]);
             $entry->save();
 
-            $this->log($entry, $employee, $existing ? 'resubmitted' : 'submitted', $old, $entry->fresh()->toArray());
+            $this->log($entry, $lockedUser, $existing ? 'resubmitted' : 'submitted', $old, $entry->fresh()->toArray());
 
             return $entry;
         });
@@ -182,71 +246,114 @@ class TimesheetService
 
     /**
      * @param  array<string, mixed>  $data
+     * @throws ValidationException
      */
     public function adminUpdate(TimesheetEntry $entry, User $admin, array $data): TimesheetEntry
     {
         return DB::transaction(function () use ($entry, $admin, $data) {
-            $old = $entry->only(['work_date', 'starts_at', 'ends_at', 'total_minutes', 'status', 'branch_id', 'shift_id']);
+            // STEP 2: Admin operations must identify employee, lock User first, then lock entry
+            // Find target employee id first
+            $employeeId = $entry->user_id;
+
+            $lockedUser = User::where('id', $employeeId)->lockForUpdate()->firstOrFail();
+            $lockedEntry = TimesheetEntry::where('id', $entry->id)->lockForUpdate()->firstOrFail();
+
+            $old = $lockedEntry->only(['work_date', 'starts_at', 'ends_at', 'total_minutes', 'status', 'branch_id', 'shift_id', 'employee_notes']);
+
+            $targetBranchId = (int) $data['branch_id'];
+            $targetBranch = Branch::findOrFail($targetBranchId);
 
             $period = $this->calculator->fromStartEnd(
                 $data['work_date'],
                 $data['start_time'],
                 $data['end_time'],
-                $entry->branch
+                $targetBranch
             );
 
-            $substantiveChange = $this->isSubstantiveChange($entry, $period, (int) $data['branch_id'], $data['shift_id'] ?? null);
+            $shiftId = ! empty($data['shift_id']) ? (int) $data['shift_id'] : null;
 
-            $entry->fill([
-                'branch_id' => $data['branch_id'],
-                'shift_id' => $data['shift_id'] ?? null,
+            // STEP 3 & STEP 7: Check overlap excluding the edited entry
+            $this->overlapValidator->validate(
+                userId: $lockedUser->id,
+                startsAtUtc: $period['starts_at'],
+                endsAtUtc: $period['ends_at'],
+                ignoreEntryId: $lockedEntry->id,
+                shiftId: $shiftId
+            );
+
+            $substantiveChange = $this->isSubstantiveChange($lockedEntry, $period, $targetBranchId, $shiftId);
+
+            $lockedEntry->fill([
+                'branch_id' => $targetBranchId,
+                'shift_id' => $shiftId,
                 'work_date' => $period['work_date'],
                 'starts_at' => $period['starts_at'],
                 'ends_at' => $period['ends_at'],
                 'total_minutes' => $period['total_minutes'],
-                'employee_notes' => $data['employee_notes'] ?? $entry->employee_notes,
+                'employee_notes' => $data['employee_notes'] ?? $lockedEntry->employee_notes,
             ]);
 
-            if ($substantiveChange && $entry->status === TimesheetStatus::Approved) {
-                $entry->status = TimesheetStatus::PendingApproval;
-                $entry->rejection_reason = null;
-                $entry->reviewed_by = null;
-                $entry->reviewed_at = null;
+            // STEP 7: Reset approval status only on substantive changes or if currently clocked_in
+            if ($lockedEntry->status === TimesheetStatus::ClockedIn
+                || ($substantiveChange && $lockedEntry->status === TimesheetStatus::Approved)) {
+                $lockedEntry->status = TimesheetStatus::PendingApproval;
+                $lockedEntry->rejection_reason = null;
+                $lockedEntry->reviewed_by = null;
+                $lockedEntry->reviewed_at = null;
             }
 
-            $entry->save();
+            $lockedEntry->save();
 
-            $this->log($entry, $admin, 'admin_edited', $old, $entry->fresh()->toArray());
+            $this->log($lockedEntry, $admin, 'admin_edited', $old, $lockedEntry->fresh()->toArray());
 
-            return $entry;
+            return $lockedEntry;
         });
     }
 
     public function approve(TimesheetEntry $entry, User $admin): TimesheetEntry
     {
         return DB::transaction(function () use ($entry, $admin) {
-            if ($entry->status !== TimesheetStatus::PendingApproval) {
+            // STEP 2: Lock User row first, then TimesheetEntry row
+            $lockedUser = User::where('id', $entry->user_id)->lockForUpdate()->firstOrFail();
+            $lockedEntry = TimesheetEntry::where('id', $entry->id)->lockForUpdate()->firstOrFail();
+
+            // Re-read and validate current state after locking
+            if ($lockedEntry->status !== TimesheetStatus::PendingApproval) {
                 throw new InvalidArgumentException('Only pending entries can be approved.');
             }
 
-            $old = $entry->only(['status']);
-            $entry->update([
+            // Verify before approving that this entry doesn't overlap with another approved entry
+            $this->overlapValidator->validate(
+                userId: $lockedUser->id,
+                startsAtUtc: $lockedEntry->starts_at,
+                endsAtUtc: $lockedEntry->ends_at,
+                ignoreEntryId: $lockedEntry->id,
+                shiftId: $lockedEntry->shift_id
+            );
+
+            $old = $lockedEntry->only(['status']);
+            $lockedEntry->update([
                 'status' => TimesheetStatus::Approved,
                 'reviewed_by' => $admin->id,
                 'reviewed_at' => now(),
                 'rejection_reason' => null,
             ]);
 
-            $this->log($entry, $admin, 'approved', $old, $entry->fresh()->only(['status']));
+            $this->log($lockedEntry, $admin, 'approved', $old, $lockedEntry->fresh()->only(['status']));
 
-            return $entry;
+            return $lockedEntry;
         });
     }
 
     public function reject(TimesheetEntry $entry, User $admin, string $reason): TimesheetEntry
     {
         return DB::transaction(function () use ($entry, $admin, $reason) {
-            if ($entry->status !== TimesheetStatus::PendingApproval) {
+            // STEP 2: Lock User row first, then TimesheetEntry row
+            $lockedUser = User::where('id', $entry->user_id)->lockForUpdate()->firstOrFail();
+            $lockedEntry = TimesheetEntry::where('id', $entry->id)->lockForUpdate()->firstOrFail();
+
+            // Re-read and validate current state after locking
+            if ($lockedEntry->status !== TimesheetStatus::PendingApproval) {
                 throw new InvalidArgumentException('Only pending entries can be rejected.');
             }
 
@@ -255,17 +362,17 @@ class TimesheetService
                 throw new InvalidArgumentException('Rejection reason is required.');
             }
 
-            $old = $entry->only(['status', 'rejection_reason']);
-            $entry->update([
+            $old = $lockedEntry->only(['status', 'rejection_reason']);
+            $lockedEntry->update([
                 'status' => TimesheetStatus::Rejected,
                 'rejection_reason' => $reason,
                 'reviewed_by' => $admin->id,
                 'reviewed_at' => now(),
             ]);
 
-            $this->log($entry, $admin, 'rejected', $old, $entry->fresh()->only(['status', 'rejection_reason']), $reason);
+            $this->log($lockedEntry, $admin, 'rejected', $old, $lockedEntry->fresh()->only(['status', 'rejection_reason']), $reason);
 
-            return $entry;
+            return $lockedEntry;
         });
     }
 
@@ -276,9 +383,9 @@ class TimesheetService
     {
         return $entry->branch_id !== $branchId
             || $entry->shift_id !== $shiftId
-            || $entry->work_date !== $period['work_date']
+            || $entry->work_date->toDateString() !== $period['work_date']
             || ! $entry->starts_at->equalTo($period['starts_at'])
-            || ! $entry->ends_at->equalTo($period['ends_at'])
+            || ! $entry->ends_at?->equalTo($period['ends_at'])
             || $entry->total_minutes !== $period['total_minutes'];
     }
 

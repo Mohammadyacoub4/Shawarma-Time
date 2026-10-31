@@ -64,6 +64,7 @@
 
     <div class="space-y-6">
         <x-flash-messages />
+        <x-temporary-password-modal />
 
         {{-- KPI STATS --}}
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -77,7 +78,7 @@
                         </div>
                         <p class="text-xs text-dark-400 mt-1">
                             {{ $activeClockIn->branch->name }} • {{ app()->getLocale() === 'ar' ? 'منذ' : 'since' }}
-                            {{ $activeClockIn->starts_at?->timezone(config('app.timezone', 'Asia/Amman'))->format('g:i A') }}
+                            {{ $activeClockIn->starts_at?->timezone(App\Support\BranchTime::timezoneFor($activeClockIn->branch))->format('g:i A') }}
                         </p>
                     @else
                         <div class="flex items-center gap-2">

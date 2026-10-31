@@ -3,6 +3,9 @@
 namespace App\Models;
 
 use App\Enums\TimesheetStatus;
+use Carbon\Carbon;
+use Carbon\CarbonInterface;
+use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -37,14 +40,54 @@ class TimesheetEntry extends Model
     {
         return [
             'work_date' => 'date',
-            'starts_at' => 'datetime',
-            'ends_at' => 'datetime',
             'is_late' => 'boolean',
             'late_minutes' => 'integer',
             'status' => TimesheetStatus::class,
             'submitted_at' => 'datetime',
             'reviewed_at' => 'datetime',
         ];
+    }
+
+    protected function startsAt(): Attribute
+    {
+        return Attribute::make(
+            get: function ($value) {
+                if (! $value) {
+                    return null;
+                }
+                return $value instanceof CarbonInterface ? $value->copy()->utc() : Carbon::parse($value, 'UTC');
+            },
+            set: function ($value) {
+                if (! $value) {
+                    return null;
+                }
+                if ($value instanceof CarbonInterface) {
+                    return $value->copy()->utc()->format('Y-m-d H:i:s');
+                }
+                return Carbon::parse($value)->utc()->format('Y-m-d H:i:s');
+            }
+        );
+    }
+
+    protected function endsAt(): Attribute
+    {
+        return Attribute::make(
+            get: function ($value) {
+                if (! $value) {
+                    return null;
+                }
+                return $value instanceof CarbonInterface ? $value->copy()->utc() : Carbon::parse($value, 'UTC');
+            },
+            set: function ($value) {
+                if (! $value) {
+                    return null;
+                }
+                if ($value instanceof CarbonInterface) {
+                    return $value->copy()->utc()->format('Y-m-d H:i:s');
+                }
+                return Carbon::parse($value)->utc()->format('Y-m-d H:i:s');
+            }
+        );
     }
 
     public function isCurrentlyClockedIn(): bool

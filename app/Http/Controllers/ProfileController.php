@@ -52,6 +52,18 @@ class ProfileController extends Controller
 
         $user = $request->user();
 
+        if (\App\Models\User::where('role', \App\Enums\UserRole::Admin)->count() <= 1) {
+            return back()->withErrors([
+                'password' => 'لا يمكن حذف حساب المسؤول الأخير في النظام / Cannot delete the last remaining admin account.',
+            ], 'userDeletion');
+        }
+
+        if ($user->timesheetEntries()->exists() || \App\Models\TimesheetAuditLog::where('performed_by', $user->id)->exists()) {
+            return back()->withErrors([
+                'password' => 'لا يمكن حذف الحساب لوجود سجلات دوام أو تدقيق مرتبطة به. يرجى تعطيل الحساب بدلاً من حذفه / Cannot delete account with associated timesheet or audit records. Deactivate instead.',
+            ], 'userDeletion');
+        }
+
         Auth::logout();
 
         $user->delete();

@@ -46,8 +46,16 @@ class ScheduleController extends Controller
         }
 
         $tz = BranchTime::timezoneFor($branch);
-        $weekParam = $request->input('week');
-        $weekStart = BranchTime::weekStart($weekParam ? Carbon::parse($weekParam, $tz) : now($tz), $branch)->toDateString();
+        $weekParam = $request->query('week');
+        $parsedWeek = now($tz);
+        if (is_string($weekParam) && trim($weekParam) !== '') {
+            try {
+                $parsedWeek = Carbon::parse($weekParam, $tz);
+            } catch (\Exception) {
+                $parsedWeek = now($tz);
+            }
+        }
+        $weekStart = BranchTime::weekStart($parsedWeek, $branch)->toDateString();
         $weekEnd = BranchTime::weekEnd(Carbon::parse($weekStart, $tz))->toDateString();
 
         $currentWeekStart = BranchTime::weekStart(now($tz), $branch)->toDateString();

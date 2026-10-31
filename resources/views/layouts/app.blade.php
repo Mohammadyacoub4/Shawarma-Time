@@ -8,6 +8,12 @@
     <title>{{ isset($title) ? $title . ' — ' : '' }}{{ config('app.name', 'Shawarma Time') }} — إدارة الحضور والدوام</title>
     <meta name="description" content="نظام إدارة حضور ودوام موظفي شاورما تايم — Shawarma Time Staff Attendance & Scheduling">
 
+    <!-- Favicon -->
+    <link rel="icon" type="image/x-icon" href="{{ asset('favicon.ico') }}">
+    <link rel="icon" type="image/png" sizes="32x32" href="{{ asset('favicon-32.png') }}">
+    <link rel="icon" type="image/png" sizes="16x16" href="{{ asset('favicon-16.png') }}">
+    <link rel="apple-touch-icon" sizes="180x180" href="{{ asset('apple-touch-icon.png') }}">
+
     <!-- Preconnect for fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -28,7 +34,7 @@
                 {{-- LOGO --}}
                 <div class="flex items-center gap-8">
                     <a href="{{ route('dashboard') }}" class="flex items-center gap-3 shrink-0 group">
-                        <img src="{{ asset('logo.png') }}" alt="Shawarma Time" class="h-9 w-auto object-contain transition-opacity duration-200 group-hover:opacity-90">
+                        <img src="{{ asset('logo.png') }}" alt="{{ config('app.name', 'Shawarma Time') }}" class="h-10 w-auto object-contain transition-opacity duration-200 group-hover:opacity-90">
                     </a>
 
                     {{-- DESKTOP NAV LINKS --}}
@@ -234,11 +240,11 @@
     <footer class="mt-16 border-t border-dark-800 bg-dark-950">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 flex flex-col sm:flex-row items-center justify-between gap-3">
             <div class="flex items-center gap-3">
-                <img src="{{ asset('logo.png') }}" alt="Shawarma Time" class="h-7 w-auto opacity-70">
+                <img src="{{ asset('logo.png') }}" alt="{{ config('app.name', 'Shawarma Time') }}" class="h-8 w-auto object-contain opacity-80">
                 <span class="text-dark-400 text-sm font-medium">شاورما تايم — Shawarma Time</span>
             </div>
             <div class="text-dark-500 text-xs">
-                نظام إدارة حضور ودوام الموظفين &nbsp;·&nbsp; {{ config('app.timezone', 'Asia/Amman') }} &nbsp;·&nbsp; &copy; {{ date('Y') }} Shawarma Time
+                نظام إدارة حضور ودوام الموظفين &nbsp;·&nbsp; {{ App\Support\BranchTime::DEFAULT_TIMEZONE }} &nbsp;·&nbsp; &copy; {{ date('Y') }} Shawarma Time
             </div>
         </div>
     </footer>

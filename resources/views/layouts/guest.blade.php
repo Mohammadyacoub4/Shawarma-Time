@@ -7,6 +7,12 @@
 
     <title>{{ isset($title) ? $title . ' — ' : '' }}{{ config('app.name', 'Shawarma Time') }} Staff Portal</title>
 
+    <!-- Favicon -->
+    <link rel="icon" type="image/x-icon" href="{{ asset('favicon.ico') }}">
+    <link rel="icon" type="image/png" sizes="32x32" href="{{ asset('favicon-32.png') }}">
+    <link rel="icon" type="image/png" sizes="16x16" href="{{ asset('favicon-16.png') }}">
+    <link rel="apple-touch-icon" sizes="180x180" href="{{ asset('apple-touch-icon.png') }}">
+
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 
@@ -22,7 +28,7 @@
         {{-- Logo --}}
         <div class="mb-8 text-center">
             <a href="{{ route('login') }}" class="inline-block">
-                <img src="{{ asset('logo.png') }}" alt="Shawarma Time" class="h-14 w-auto mx-auto mb-3">
+                <img src="{{ asset('logo.png') }}" alt="{{ config('app.name', 'Shawarma Time') }}" class="h-16 w-auto mx-auto mb-3 object-contain drop-shadow-md">
             </a>
             <p class="text-dark-400 text-sm">Staff Scheduling & Timesheet Portal</p>
         </div>

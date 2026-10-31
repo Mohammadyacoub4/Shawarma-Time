@@ -40,6 +40,6 @@ class ShiftPolicy
     {
         $week = $shift->scheduleWeek;
 
-        return $week?->is_published === true;
+        return $week?->is_published === true && $user->isAssignedToBranch($shift->branch_id);
     }
 }

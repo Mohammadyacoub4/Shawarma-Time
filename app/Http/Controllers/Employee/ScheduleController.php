@@ -16,13 +16,16 @@ class ScheduleController extends Controller
     public function index(Request $request): View
     {
         $user = $request->user() ?? auth()->user();
-        $userBranches = $user?->branches ?? collect();
+        $userBranches = $user?->isAdmin()
+            ? Branch::orderBy('name')->get()
+            : ($user?->branches()->orderBy('name')->get() ?? collect());
 
         $branchId = $request->integer('branch_id');
-        $branch = $branchId > 0 ? Branch::find($branchId) : null;
-        $branch = $branch ?? $userBranches->first() ?? Branch::orderBy('id')->first();
+        $branch = $branchId > 0
+            ? $userBranches->firstWhere('id', $branchId)
+            : $userBranches->first();
 
-        $branches = $userBranches->isNotEmpty() ? $userBranches : Branch::orderBy('name')->get();
+        $branches = $userBranches;
 
         if (! $branch) {
             return view('employee.schedules.index', [
@@ -41,8 +44,16 @@ class ScheduleController extends Controller
         }
 
         $tz = BranchTime::timezoneFor($branch);
-        $weekParam = $request->input('week');
-        $weekStart = BranchTime::weekStart($weekParam ? Carbon::parse($weekParam, $tz) : now($tz), $branch)->toDateString();
+        $weekParam = $request->query('week');
+        $parsedWeek = now($tz);
+        if (is_string($weekParam) && trim($weekParam) !== '') {
+            try {
+                $parsedWeek = Carbon::parse($weekParam, $tz);
+            } catch (\Exception) {
+                $parsedWeek = now($tz);
+            }
+        }
+        $weekStart = BranchTime::weekStart($parsedWeek, $branch)->toDateString();
         $weekEnd = BranchTime::weekEnd(Carbon::parse($weekStart, $tz))->toDateString();
 
         $currentWeekStart = BranchTime::weekStart(now($tz), $branch)->toDateString();

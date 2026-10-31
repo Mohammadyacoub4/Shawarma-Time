@@ -3,8 +3,8 @@
         <div class="flex justify-between h-16">
             <div class="flex">
                 <div class="shrink-0 flex items-center">
-                    <a href="{{ route('dashboard') }}" class="text-lg font-semibold text-orange-700 tracking-tight">
-                        Shawarma Time
+                    <a href="{{ route('dashboard') }}">
+                        <img src="{{ asset('logo.png') }}" alt="{{ config('app.name', 'Shawarma Time') }}" class="h-10 w-auto object-contain">
                     </a>
                 </div>
 

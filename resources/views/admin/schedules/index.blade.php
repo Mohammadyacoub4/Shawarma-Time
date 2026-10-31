@@ -231,7 +231,7 @@
                             <div class="p-2.5 flex-1 space-y-2 min-h-[300px]">
                                 @forelse ($dayShifts as $shift)
                                     @php
-                                        $shiftTz = $branch->timezone ?? 'Asia/Amman';
+                                        $shiftTz = App\Support\BranchTime::timezoneFor($branch);
                                         $startsFmt = $shift->starts_at->timezone($shiftTz)->format('g:i A');
                                         $endsFmt = $shift->ends_at->timezone($shiftTz)->format('g:i A');
                                         $isOvernight = $shift->starts_at->timezone($shiftTz)->format('d') !== $shift->ends_at->timezone($shiftTz)->format('d');

@@ -39,6 +39,9 @@ Route::middleware(['auth', 'active', 'password.change'])->group(function () {
         Route::post('employees/{employee}/toggle-status', [EmployeeController::class, 'toggleStatus'])->name('employees.toggle-status');
         Route::get('employees/{employee}/reset-password', [EmployeeController::class, 'showResetPassword'])->name('employees.reset-password');
         Route::post('employees/{employee}/reset-password', [EmployeeController::class, 'resetPassword'])->name('employees.reset-password.update');
+        Route::post('employees/{employee}/retrieve-temporary-password', [EmployeeController::class, 'retrieveTemporaryPassword'])
+            ->middleware('throttle:15,1')
+            ->name('employees.retrieve-temporary-password');
 
         Route::get('schedules', [ScheduleController::class, 'index'])->name('schedules.index');
         Route::post('schedules/shifts', [ScheduleController::class, 'store'])->name('schedules.shifts.store');

@@ -290,6 +290,292 @@ class ShawarmaApplicationTest extends TestCase
         $resEmail->assertSee('Unique Employee');
     }
 
+    public function test_admin_updating_clocked_in_timesheet_moves_to_pending_and_frees_employee(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $employee = $this->makeEmployee([$this->richmond->id]);
+
+        // Employee clocks in
+        $entry = TimesheetEntry::create([
+            'user_id' => $employee->id,
+            'branch_id' => $this->richmond->id,
+            'work_date' => now()->toDateString(),
+            'starts_at' => now()->subHours(4),
+            'ends_at' => null,
+            'total_minutes' => 0,
+            'status' => TimesheetStatus::ClockedIn,
+            'submitted_at' => now(),
+        ]);
+
+        $this->assertTrue($employee->isClockedIn());
+
+        // Admin updates the entry with end time
+        $response = $this->actingAs($admin)->put(route('admin.timesheets.update', $entry), [
+            'branch_id' => $this->richmond->id,
+            'work_date' => $entry->work_date->toDateString(),
+            'start_time' => '10:00',
+            'end_time' => '18:00',
+        ]);
+        $response->assertRedirect();
+
+        $fresh = $entry->fresh();
+        $this->assertSame(TimesheetStatus::PendingApproval, $fresh->status);
+        $this->assertNotNull($fresh->ends_at);
+        $this->assertFalse($employee->fresh()->isClockedIn());
+
+        // Employee can now clock in again
+        $this->actingAs($employee)->post(route('employee.attendance.clock-in'), [
+            'branch_id' => $this->richmond->id,
+        ])->assertRedirect(route('employee.dashboard'));
+
+        $this->assertTrue($employee->fresh()->isClockedIn());
+    }
+
+    public function test_admin_cannot_clock_in_or_out_as_employee(): void
+    {
+        $admin = User::factory()->admin()->create();
+
+        $this->actingAs($admin)->post(route('employee.attendance.clock-in'), [
+            'branch_id' => $this->richmond->id,
+        ])->assertForbidden();
+
+        $this->actingAs($admin)->post(route('employee.attendance.clock-out'))
+            ->assertForbidden();
+    }
+
+    public function test_cannot_delete_user_with_timesheet_or_audit_history(): void
+    {
+        $employee = $this->makeEmployee([$this->richmond->id]);
+        TimesheetEntry::factory()->for($employee)->for($this->richmond)->create();
+
+        $this->expectException(\DomainException::class);
+        $employee->delete();
+    }
+
+    public function test_employee_without_branch_sees_no_schedules_or_published_weeks(): void
+    {
+        $unassigned = User::factory()->employee()->create();
+
+        // Published week on Richmond
+        ScheduleWeek::create([
+            'branch_id' => $this->richmond->id,
+            'week_start' => now()->startOfWeek()->toDateString(),
+            'is_published' => true,
+        ]);
+
+        $dashboardRes = $this->actingAs($unassigned)->get(route('employee.dashboard'));
+        $dashboardRes->assertOk();
+        $dashboardRes->assertDontSee($this->richmond->name);
+
+        $scheduleRes = $this->actingAs($unassigned)->get(route('employee.schedules.index'));
+        $scheduleRes->assertOk();
+        $scheduleRes->assertSee('No branches found');
+    }
+
+    public function test_invalid_date_or_week_parameters_do_not_throw_500_error(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $employee = $this->makeEmployee([$this->richmond->id]);
+
+        // Malformed date on admin dashboard
+        $this->actingAs($admin)->get(route('admin.dashboard', ['date' => 'not-a-date']))
+            ->assertOk();
+
+        // Malformed week on admin schedules
+        $this->actingAs($admin)->get(route('admin.schedules.index', ['week' => 'invalid-week']))
+            ->assertOk();
+
+        // Malformed parameters on admin reports
+        $this->actingAs($admin)->get(route('admin.reports.index', ['week' => 'bad', 'from' => 'garbage', 'to' => 'corrupt']))
+            ->assertOk();
+
+        // Malformed week on employee schedules
+        $this->actingAs($employee)->get(route('employee.schedules.index', ['week' => 'bad-format']))
+            ->assertOk();
+    }
+
+    public function test_shift_save_and_update_maintains_exact_entered_times(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $employee = $this->makeEmployee([$this->richmond->id]);
+        $workDate = now(BranchTime::timezoneFor($this->richmond))->startOfWeek()->addDay()->toDateString();
+
+        // 1. Store a new shift with 09:00 - 17:00
+        $resStore = $this->actingAs($admin)->post(route('admin.schedules.shifts.store'), [
+            'branch_id' => $this->richmond->id,
+            'user_id' => $employee->id,
+            'work_date' => $workDate,
+            'start_time' => '09:00',
+            'end_time' => '17:00',
+            'grace_minutes' => 15,
+            'notes' => 'Test schedule accuracy',
+        ]);
+        $resStore->assertRedirect();
+
+        $shift = Shift::where('user_id', $employee->id)->whereDate('work_date', $workDate)->firstOrFail();
+        $this->assertSame('09:00', $shift->starts_at->timezone(BranchTime::timezoneFor($this->richmond))->format('H:i'));
+        $this->assertSame('17:00', $shift->ends_at->timezone(BranchTime::timezoneFor($this->richmond))->format('H:i'));
+
+        // 2. View on admin calendar and verify displayed time and modal data
+        $resIndex = $this->actingAs($admin)->get(route('admin.schedules.index', [
+            'branch_id' => $this->richmond->id,
+            'week' => now(BranchTime::timezoneFor($this->richmond))->startOfWeek()->toDateString(),
+        ]));
+        $resIndex->assertOk();
+        $resIndex->assertSee('9:00 AM - 5:00 PM');
+        $resIndex->assertSee('&quot;start_time&quot;:&quot;09:00&quot;', false);
+        $resIndex->assertSee('&quot;end_time&quot;:&quot;17:00&quot;', false);
+
+        // 3. Update shift to 10:00 - 18:00
+        $resUpdate = $this->actingAs($admin)->put(route('admin.schedules.shifts.update', $shift), [
+            'branch_id' => $this->richmond->id,
+            'user_id' => $employee->id,
+            'work_date' => $workDate,
+            'start_time' => '10:00',
+            'end_time' => '18:00',
+            'grace_minutes' => 15,
+            'notes' => 'Updated time',
+        ]);
+        $resUpdate->assertRedirect();
+
+        $shift->refresh();
+        $this->assertSame('10:00', $shift->starts_at->timezone(BranchTime::timezoneFor($this->richmond))->format('H:i'));
+        $this->assertSame('18:00', $shift->ends_at->timezone(BranchTime::timezoneFor($this->richmond))->format('H:i'));
+
+        // 4. Update shift again without changing times
+        $resUpdateAgain = $this->actingAs($admin)->put(route('admin.schedules.shifts.update', $shift), [
+            'branch_id' => $this->richmond->id,
+            'user_id' => $employee->id,
+            'work_date' => $workDate,
+            'start_time' => '10:00',
+            'end_time' => '18:00',
+            'grace_minutes' => 15,
+            'notes' => 'Updated notes only',
+        ]);
+        $resUpdateAgain->assertRedirect();
+
+        $shift->refresh();
+        $this->assertSame('10:00', $shift->starts_at->timezone(BranchTime::timezoneFor($this->richmond))->format('H:i'));
+        $this->assertSame('18:00', $shift->ends_at->timezone(BranchTime::timezoneFor($this->richmond))->format('H:i'));
+    }
+
+    public function test_employee_cannot_resubmit_rejected_timesheet_with_another_employees_shift(): void
+    {
+        $employeeA = $this->makeEmployee([$this->richmond->id]);
+        $employeeB = $this->makeEmployee([$this->richmond->id]);
+
+        $entryA = TimesheetEntry::factory()->for($employeeA)->for($this->richmond)->create([
+            'status' => TimesheetStatus::Rejected,
+        ]);
+
+        $shiftB = Shift::factory()->for($this->richmond)->for($employeeB)->create();
+
+        $response = $this->actingAs($employeeA)->put(route('employee.timesheets.update', $entryA), [
+            'branch_id' => $this->richmond->id,
+            'shift_id' => $shiftB->id,
+            'work_date' => $entryA->work_date->toDateString(),
+            'start_time' => '09:00',
+            'end_time' => '17:00',
+        ]);
+
+        $response->assertForbidden();
+    }
+
+    public function test_employee_cannot_submit_timesheet_linking_shift_from_another_branch(): void
+    {
+        // Employee assigned to both branches
+        $employee = $this->makeEmployee([$this->richmond->id, $this->vancouver->id]);
+
+        // Shift is in Vancouver
+        $shiftVancouver = Shift::factory()->for($this->vancouver)->for($employee)->create();
+
+        // Submit timesheet claiming Richmond branch, but with Vancouver shift
+        $response = $this->actingAs($employee)->post(route('employee.timesheets.store'), [
+            'branch_id' => $this->richmond->id,
+            'shift_id' => $shiftVancouver->id,
+            'work_date' => now(BranchTime::DEFAULT_TIMEZONE)->toDateString(),
+            'start_time' => '09:00',
+            'end_time' => '17:00',
+        ]);
+
+        $response->assertForbidden();
+    }
+
+    public function test_employee_cannot_resubmit_timesheet_linking_shift_from_another_branch(): void
+    {
+        $employee = $this->makeEmployee([$this->richmond->id, $this->vancouver->id]);
+
+        $entry = TimesheetEntry::factory()->for($employee)->for($this->richmond)->create([
+            'status' => TimesheetStatus::Rejected,
+        ]);
+
+        $shiftVancouver = Shift::factory()->for($this->vancouver)->for($employee)->create();
+
+        $response = $this->actingAs($employee)->put(route('employee.timesheets.update', $entry), [
+            'branch_id' => $this->richmond->id,
+            'shift_id' => $shiftVancouver->id,
+            'work_date' => $entry->work_date->toDateString(),
+            'start_time' => '09:00',
+            'end_time' => '17:00',
+        ]);
+
+        $response->assertForbidden();
+    }
+
+    public function test_employee_can_submit_timesheet_using_own_shift_in_matching_branch(): void
+    {
+        $employee = $this->makeEmployee([$this->richmond->id]);
+        $shift = Shift::factory()->for($this->richmond)->for($employee)->create();
+
+        $response = $this->actingAs($employee)->post(route('employee.timesheets.store'), [
+            'branch_id' => $this->richmond->id,
+            'shift_id' => $shift->id,
+            'work_date' => now(BranchTime::DEFAULT_TIMEZONE)->toDateString(),
+            'start_time' => '09:00',
+            'end_time' => '17:00',
+        ]);
+
+        $response->assertRedirect(route('employee.dashboard'));
+        $this->assertDatabaseHas('timesheet_entries', [
+            'user_id' => $employee->id,
+            'branch_id' => $this->richmond->id,
+            'shift_id' => $shift->id,
+            'status' => TimesheetStatus::PendingApproval->value,
+        ]);
+    }
+
+    public function test_shift_policy_authorization_for_employees_and_admins(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $employeeVancouver = $this->makeEmployee([$this->vancouver->id]);
+        $employeeRichmond = $this->makeEmployee([$this->richmond->id]);
+
+        $publishedWeekRichmond = ScheduleWeek::factory()->for($this->richmond)->create([
+            'week_start' => now()->startOfWeek()->toDateString(),
+            'is_published' => true,
+        ]);
+        $unpublishedWeekRichmond = ScheduleWeek::factory()->for($this->richmond)->create([
+            'week_start' => now()->startOfWeek()->addWeeks(2)->toDateString(),
+            'is_published' => false,
+        ]);
+
+        $publishedShiftRichmond = Shift::factory()->for($this->richmond)->for($publishedWeekRichmond)->create();
+        $unpublishedShiftRichmond = Shift::factory()->for($this->richmond)->for($unpublishedWeekRichmond)->create();
+
+        // 1. Employee cannot view unpublished shift
+        $this->assertFalse($employeeRichmond->can('view', $unpublishedShiftRichmond));
+
+        // 2. Employee cannot view published shift from an unassigned branch (Vancouver staff on Richmond shift)
+        $this->assertFalse($employeeVancouver->can('view', $publishedShiftRichmond));
+
+        // 3. Employee can view published shift from assigned branch
+        $this->assertTrue($employeeRichmond->can('view', $publishedShiftRichmond));
+
+        // 4. Admin can view both shifts across branches
+        $this->assertTrue($admin->can('view', $publishedShiftRichmond));
+        $this->assertTrue($admin->can('view', $unpublishedShiftRichmond));
+    }
+
     private function carbonMonday(): int
     {
         return \Carbon\Carbon::MONDAY;

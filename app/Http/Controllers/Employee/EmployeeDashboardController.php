@@ -30,12 +30,16 @@ class EmployeeDashboardController extends Controller
             ->limit(10)
             ->get();
 
-        $publishedWeeks = ScheduleWeek::with('branch')
-            ->where('is_published', true)
-            ->whereIn('branch_id', $user->branches()->exists() ? $user->branches()->pluck('branches.id') : Branch::pluck('id'))
-            ->latest('week_start')
-            ->limit(6)
-            ->get();
+        $branchIds = $user->branches()->pluck('branches.id');
+
+        $publishedWeeks = $branchIds->isNotEmpty()
+            ? ScheduleWeek::with('branch')
+                ->where('is_published', true)
+                ->whereIn('branch_id', $branchIds)
+                ->latest('week_start')
+                ->limit(6)
+                ->get()
+            : collect();
 
         $entries = TimesheetEntry::with('branch')
             ->where('user_id', $user->id)
@@ -62,6 +66,8 @@ class EmployeeDashboardController extends Controller
             'entries' => $entries,
             'totals' => $reports->employeeHourTotals($user->id),
             'calculator' => $calculator,
+            'tz' => $tz,
+            'userBranch' => $userBranch,
             'statusCounts' => [
                 'clocked_in' => $activeClockIn ? 1 : 0,
                 'pending' => $entries->where('status', TimesheetStatus::PendingApproval)->count(),

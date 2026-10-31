@@ -5,7 +5,7 @@
                 <h1 class="page-title text-xl sm:text-2xl font-bold text-white flex items-center gap-2">
                     <span>{{ app()->getLocale() === 'ar' ? 'لوحة تحكم الإدارة' : 'Admin Dashboard' }}</span>
                     <span class="badge bg-brand-500/20 text-brand-400 border border-brand-500/30 text-xs">
-                        {{ config('app.timezone', 'Asia/Amman') }}
+                        {{ App\Support\BranchTime::DEFAULT_TIMEZONE }}
                     </span>
                 </h1>
                 <p class="text-sm text-dark-400 mt-1">
@@ -141,7 +141,7 @@
                                             <p class="text-sm font-semibold text-white">{{ $entry->user->name }}</p>
                                             <p class="text-xs text-dark-400 font-mono">
                                                 {{ app()->getLocale() === 'ar' ? 'منذ:' : 'Since:' }}
-                                                {{ $entry->starts_at->timezone(config('app.timezone', 'Asia/Amman'))->format('g:i A') }}
+                                                {{ $entry->starts_at->timezone(App\Support\BranchTime::timezoneFor($entry->branch))->format('g:i A') }}
                                                 ({{ $entry->starts_at->diffForHumans() }})
                                             </p>
                                         </div>
@@ -192,8 +192,8 @@
                                             <p class="text-sm font-semibold text-white">{{ $shift->user->name }}</p>
                                             <p class="text-xs text-rose-400/90 font-mono">
                                                 {{ app()->getLocale() === 'ar' ? 'موعد المناوبة:' : 'Shift:' }}
-                                                {{ $shift->starts_at->timezone(config('app.timezone', 'Asia/Amman'))->format('g:i A') }} –
-                                                {{ $shift->ends_at->timezone(config('app.timezone', 'Asia/Amman'))->format('g:i A') }}
+                                                {{ $shift->starts_at->timezone(App\Support\BranchTime::timezoneFor($shift->branch))->format('g:i A') }} –
+                                                {{ $shift->ends_at->timezone(App\Support\BranchTime::timezoneFor($shift->branch))->format('g:i A') }}
                                             </p>
                                         </div>
                                     </div>

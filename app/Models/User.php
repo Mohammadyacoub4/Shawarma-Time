@@ -41,6 +41,23 @@ class User extends Authenticatable
         ];
     }
 
+    protected static function booted(): void
+    {
+        static::deleting(function (User $user) {
+            if ($user->isAdmin() && static::where('role', UserRole::Admin)->count() <= 1) {
+                throw new \DomainException('Cannot delete the last remaining administrator account.');
+            }
+
+            if ($user->timesheetEntries()->exists()) {
+                throw new \DomainException('Cannot delete a user with existing timesheet records. Deactivate the user instead.');
+            }
+
+            if (TimesheetAuditLog::where('performed_by', $user->id)->exists()) {
+                throw new \DomainException('Cannot delete a user with associated audit log records. Deactivate the user instead.');
+            }
+        });
+    }
+
     public function isAdmin(): bool
     {
         return $this->role === UserRole::Admin;

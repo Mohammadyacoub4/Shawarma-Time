@@ -21,20 +21,14 @@
             <x-input-error :messages="$errors->get('password')" />
         </div>
 
-        <div class="flex items-center justify-between">
-            <label for="remember_me" class="flex items-center gap-2 cursor-pointer">
-                <input id="remember_me" type="checkbox" name="remember"
-                       class="w-4 h-4 rounded border-dark-600 bg-dark-700 text-brand-500 focus:ring-brand-500 focus:ring-offset-dark-800">
-                <span class="text-sm text-dark-300">Remember me</span>
-            </label>
-
-            @if (Route::has('password.request'))
+        @if (Route::has('password.request'))
+            <div class="flex items-center justify-end">
                 <a href="{{ route('password.request') }}"
                    class="text-sm text-brand-400 hover:text-brand-300 transition-colors">
                     Forgot password?
                 </a>
-            @endif
-        </div>
+            </div>
+        @endif
 
         <x-primary-button class="w-full justify-center">
             <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">

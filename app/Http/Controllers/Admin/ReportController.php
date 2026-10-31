@@ -49,12 +49,36 @@ class ReportController extends Controller
         return Excel::download(new TimesheetReportExport($report), $filename, $writerType);
     }
 
+    private function parseDateOrFallback(?string $value, string $fallback): string
+    {
+        if (! is_string($value) || trim($value) === '') {
+            return $fallback;
+        }
+
+        try {
+            return \Carbon\Carbon::parse($value, BranchTime::DEFAULT_TIMEZONE)->toDateString();
+        } catch (\Exception) {
+            return $fallback;
+        }
+    }
+
     /**
      * @return array<string, mixed>
      */
     private function filtersFromRequest(Request $request): array
     {
-        $weekStart = BranchTime::weekStart($request->input('week', now(BranchTime::DEFAULT_TIMEZONE)))->toDateString();
+        $tz = BranchTime::DEFAULT_TIMEZONE;
+        $weekParam = $request->query('week');
+        $parsedWeek = now($tz);
+        if (is_string($weekParam) && trim($weekParam) !== '') {
+            try {
+                $parsedWeek = \Carbon\Carbon::parse($weekParam, $tz);
+            } catch (\Exception) {
+                $parsedWeek = now($tz);
+            }
+        }
+
+        $weekStart = BranchTime::weekStart($parsedWeek)->toDateString();
         $weekEnd = BranchTime::weekEnd(BranchTime::weekStart($weekStart))->toDateString();
 
         return [
@@ -63,8 +87,8 @@ class ReportController extends Controller
             'status' => $request->input('status'),
             'late_only' => $request->boolean('late_only'),
             'missing_checkout' => $request->boolean('missing_checkout'),
-            'from' => $request->input('from', $weekStart),
-            'to' => $request->input('to', $weekEnd),
+            'from' => $this->parseDateOrFallback($request->query('from'), $weekStart),
+            'to' => $this->parseDateOrFallback($request->query('to'), $weekEnd),
         ];
     }
 }

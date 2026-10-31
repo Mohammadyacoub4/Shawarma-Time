@@ -8,9 +8,13 @@ use App\Http\Requests\StoreEmployeeRequest;
 use App\Http\Requests\UpdateEmployeeRequest;
 use App\Models\Branch;
 use App\Models\User;
+use App\Services\TemporaryPasswordManager;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Illuminate\View\View;
 
@@ -58,7 +62,7 @@ class EmployeeController extends Controller
         ]);
     }
 
-    public function store(StoreEmployeeRequest $request): RedirectResponse
+    public function store(StoreEmployeeRequest $request, TemporaryPasswordManager $passwordManager): RedirectResponse
     {
         $password = $request->filled('password')
             ? $request->string('password')->toString()
@@ -76,9 +80,20 @@ class EmployeeController extends Controller
 
         $employee->branches()->sync($request->input('branch_ids'));
 
+        $token = $passwordManager->store($request->user(), $employee, $password);
+
+        $statusMsg = app()->getLocale() === 'ar'
+            ? "تم إنشاء الموظف ({$employee->name}) بنجاح. انقر أدناه لعرض كلمة المرور لمرة واحدة فقط."
+            : "Employee {$employee->name} created successfully. Click below to view the temporary password once.";
+
         return redirect()
             ->route('admin.employees.index')
-            ->with('status', "Employee created. Temporary password: {$password} (share securely and ask them to change it at first login).");
+            ->with('status', $statusMsg)
+            ->with('temp_password_pending', [
+                'token' => $token,
+                'employee_id' => $employee->id,
+                'employee_name' => $employee->name,
+            ]);
     }
 
     public function edit(User $employee): View
@@ -140,9 +155,27 @@ class EmployeeController extends Controller
     {
         abort_unless($employee->isEmployee(), 404);
 
+        $newActiveStatus = ! $employee->is_active;
+
         $employee->update([
-            'is_active' => ! $employee->is_active,
+            'is_active' => $newActiveStatus,
         ]);
+
+        if (! $newActiveStatus && config('session.driver') === 'database') {
+            try {
+                $sessionTable = (string) config('session.table', 'sessions');
+                $connection = config('session.connection');
+
+                if ($sessionTable !== '' && Schema::connection($connection)->hasTable($sessionTable)) {
+                    DB::connection($connection)
+                        ->table($sessionTable)
+                        ->where('user_id', $employee->id)
+                        ->delete();
+                }
+            } catch (\Throwable) {
+                // Safely handle any session table query or connection failure
+            }
+        }
 
         $statusMsg = $employee->is_active
             ? 'تم تفعيل حساب الموظف بنجاح / Employee activated.'
@@ -161,7 +194,7 @@ class EmployeeController extends Controller
         ]);
     }
 
-    public function resetPassword(Request $request, User $employee): RedirectResponse
+    public function resetPassword(Request $request, User $employee, TemporaryPasswordManager $passwordManager): RedirectResponse
     {
         abort_unless($employee->isEmployee(), 404);
         $this->authorize('resetPassword', $employee);
@@ -184,10 +217,44 @@ class EmployeeController extends Controller
             'must_change_password' => $mustChange,
         ]);
 
-        $msg = app()->getLocale() === 'ar'
-            ? "تم تعيين كلمة المرور الجديدة للموظف ({$employee->name}) بنجاح. كلمة المرور: {$password}"
-            : "Password updated successfully for {$employee->name}. New password: {$password}";
+        $token = $passwordManager->store($request->user(), $employee, $password);
 
-        return redirect()->route('admin.employees.show', $employee)->with('status', $msg);
+        $msg = app()->getLocale() === 'ar'
+            ? "تم تعيين كلمة المرور الجديدة للموظف ({$employee->name}) بنجاح. انقر أدناه لعرض كلمة المرور لمرة واحدة فقط."
+            : "Password updated successfully for {$employee->name}. Click below to view the temporary password once.";
+
+        return redirect()->route('admin.employees.show', $employee)
+            ->with('status', $msg)
+            ->with('temp_password_pending', [
+                'token' => $token,
+                'employee_id' => $employee->id,
+                'employee_name' => $employee->name,
+            ]);
+    }
+
+    public function retrieveTemporaryPassword(Request $request, User $employee, TemporaryPasswordManager $passwordManager): JsonResponse
+    {
+        abort_unless($employee->isEmployee(), 404);
+        $this->authorize('resetPassword', $employee);
+
+        $token = (string) $request->input('token', '');
+        if ($token === '') {
+            return response()->json(['error' => 'Missing token.'], 400);
+        }
+
+        $password = $passwordManager->retrieveOnce($request->user(), $employee, $token);
+
+        if ($password === null) {
+            return response()->json([
+                'error' => app()->getLocale() === 'ar'
+                    ? 'انتهت صلاحية كلمة المرور المؤقتة أو تم عرضها مسبقاً.'
+                    : 'The temporary password has expired or has already been retrieved.',
+            ], 410);
+        }
+
+        return response()->json([
+            'password' => $password,
+        ])->header('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0, private')
+          ->header('Pragma', 'no-cache');
     }
 }

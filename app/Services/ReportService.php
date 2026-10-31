@@ -23,8 +23,22 @@ class ReportService
      */
     public function build(array $filters): array
     {
-        $from = isset($filters['from']) ? Carbon::parse($filters['from'])->toDateString() : null;
-        $to = isset($filters['to']) ? Carbon::parse($filters['to'])->toDateString() : null;
+        $from = null;
+        if (! empty($filters['from']) && is_string($filters['from'])) {
+            try {
+                $from = Carbon::parse($filters['from'])->toDateString();
+            } catch (\Exception) {
+                $from = null;
+            }
+        }
+        $to = null;
+        if (! empty($filters['to']) && is_string($filters['to'])) {
+            try {
+                $to = Carbon::parse($filters['to'])->toDateString();
+            } catch (\Exception) {
+                $to = null;
+            }
+        }
 
         $entries = $this->filteredEntriesQuery($filters)->with(['user', 'branch'])->orderBy('work_date')->get();
         $shifts = $this->filteredShiftsQuery($filters)->with(['user', 'branch'])->get();
@@ -42,7 +56,7 @@ class ReportService
         }
 
         $approvedCombined = $entries->where('status', TimesheetStatus::Approved)->sum('total_minutes');
-        $totalWorkingMinutes = $entries->sum('total_minutes');
+        $totalWorkingMinutes = $approvedCombined;
         $lateCount = $entries->where('is_late', true)->count();
         $lateMinutes = (int) $entries->where('is_late', true)->sum('late_minutes');
         $missingCheckoutCount = $entries->whereNull('ends_at')->count();

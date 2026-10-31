@@ -5,47 +5,77 @@ namespace App\Services;
 use App\Models\Branch;
 use App\Support\BranchTime;
 use Carbon\Carbon;
-use InvalidArgumentException;
+use Carbon\CarbonInterface;
+use Illuminate\Validation\ValidationException;
 
 class WorkPeriodCalculator
 {
     /**
      * @return array{starts_at: Carbon, ends_at: Carbon, total_minutes: int, work_date: string}
+     * @throws ValidationException
      */
     public function fromStartEnd(string $workDate, string $startTime, string $endTime, ?Branch $branch = null): array
     {
-        $this->assertQuarterHour($startTime);
-        $this->assertQuarterHour($endTime);
+        $this->assertQuarterHour($startTime, 'start_time');
+        $this->assertQuarterHour($endTime, 'end_time');
 
-        $startLocal = BranchTime::combineLocalDateAndTime($workDate, $startTime, $branch);
-        $endLocal = BranchTime::combineLocalDateAndTime($workDate, $endTime, $branch);
-
-        if ($endLocal->lessThanOrEqualTo($startLocal)) {
-            $endLocal = $endLocal->addDay();
+        // Disallow equal start and end time
+        if ($startTime === $endTime) {
+            throw ValidationException::withMessages([
+                'end_time' => ['وقت البداية ووقت النهاية لا يمكن أن يكونا متطابقين / Start time and end time cannot be equal.'],
+            ]);
         }
 
-        $minutes = (int) $startLocal->diffInMinutes($endLocal);
+        $startLocal = BranchTime::combineLocalDateAndTime($workDate, $startTime, $branch, 'start_time');
+
+        // Check if end_time represents an overnight shift.
+        // If end_time is less than start_time (e.g. 22:00 to 06:00), end falls on the next day.
+        $startDateCarbon = BranchTime::parseLocalDate($workDate, $branch);
+        $endDateStr = $workDate;
+
+        if (strcmp($endTime, $startTime) < 0) {
+            $endDateStr = $startDateCarbon->copy()->addDay()->toDateString();
+        }
+
+        $endLocal = BranchTime::combineLocalDateAndTime($endDateStr, $endTime, $branch, 'end_time');
+
+        // If endLocal is still <= startLocal (could theoretically happen with daylight saving transition), advance day
+        if ($endLocal->lessThanOrEqualTo($startLocal)) {
+            $endDateStr = Carbon::parse($endDateStr, BranchTime::timezoneFor($branch))->addDay()->toDateString();
+            $endLocal = BranchTime::combineLocalDateAndTime($endDateStr, $endTime, $branch, 'end_time');
+        }
+
+        $startUtc = BranchTime::toUtc($startLocal);
+        $endUtc = BranchTime::toUtc($endLocal);
+
+        $minutes = (int) $startUtc->diffInMinutes($endUtc);
         if ($minutes <= 0) {
-            throw new InvalidArgumentException('Invalid work period.');
+            throw ValidationException::withMessages([
+                'end_time' => ['فترة الدوام غير صالحة / Invalid work period.'],
+            ]);
         }
 
         return [
-            'starts_at' => BranchTime::toUtc($startLocal),
-            'ends_at' => BranchTime::toUtc($endLocal),
+            'starts_at' => $startUtc,
+            'ends_at' => $endUtc,
             'total_minutes' => $minutes,
-            'work_date' => BranchTime::workDateFromStartsAt(BranchTime::toUtc($startLocal), $branch),
+            'work_date' => BranchTime::workDateFromStartsAt($startUtc, $branch),
         ];
     }
 
-    public function assertQuarterHour(string $time): void
+    public function assertQuarterHour(string $time, string $fieldName = 'time'): void
     {
         if (! preg_match('/^(\d{1,2}):(\d{2})$/', $time, $m)) {
-            throw new InvalidArgumentException('Time must be in H:i format.');
+            throw ValidationException::withMessages([
+                $fieldName => ['يجب أن يكون الوقت بصيغة H:i / Time must be in H:i format.'],
+            ]);
         }
 
         $minutes = (int) $m[2];
         if ($minutes % 15 !== 0) {
-            throw new InvalidArgumentException('Times must use 15-minute increments.');
+            throw ValidationException::withMessages([
+                $fieldName => ['يجب أن تكون الأوقات بمضاعفات 15 دقيقة / Times must use 15-minute increments.'],
+            ]);
         }
     }
 

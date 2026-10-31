@@ -39,7 +39,7 @@ class TimesheetController extends Controller
 
         if ($request->filled('shift_id')) {
             $shift = Shift::findOrFail($request->integer('shift_id'));
-            if ($shift->user_id !== $user->id) {
+            if ($shift->user_id !== $user->id || $shift->branch_id !== (int) $request->input('branch_id')) {
                 abort(403);
             }
         }
@@ -69,6 +69,13 @@ class TimesheetController extends Controller
 
         if (! $request->user()->isAssignedToBranch((int) $request->input('branch_id'))) {
             abort(403);
+        }
+
+        if ($request->filled('shift_id')) {
+            $shift = Shift::findOrFail($request->integer('shift_id'));
+            if ($shift->user_id !== $request->user()->id || $shift->branch_id !== (int) $request->input('branch_id')) {
+                abort(403);
+            }
         }
 
         try {
