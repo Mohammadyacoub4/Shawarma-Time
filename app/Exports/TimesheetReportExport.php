@@ -5,16 +5,34 @@ namespace App\Exports;
 use App\Enums\TimesheetStatus;
 use App\Models\TimesheetEntry;
 use App\Services\WorkPeriodCalculator;
-use Illuminate\Support\Collection;
-use Maatwebsite\Excel\Concerns\FromArray;
+use Generator;
+use Illuminate\Database\Eloquent\Builder;
+use Maatwebsite\Excel\Concerns\FromGenerator;
 use Maatwebsite\Excel\Concerns\WithHeadings;
 
-class TimesheetReportExport implements FromArray, WithHeadings
+class TimesheetReportExport implements FromGenerator, WithHeadings
 {
+    private readonly WorkPeriodCalculator $calculator;
+    private readonly ?Builder $entriesQuery;
+
+    /**
+     * @param array<string, mixed> $report
+     * @param Builder<TimesheetEntry>|WorkPeriodCalculator|null $queryOrCalculator
+     * @param WorkPeriodCalculator|null $calculator
+     */
     public function __construct(
         private readonly array $report,
-        private readonly WorkPeriodCalculator $calculator = new WorkPeriodCalculator,
-    ) {}
+        Builder|WorkPeriodCalculator|null $queryOrCalculator = null,
+        ?WorkPeriodCalculator $calculator = null,
+    ) {
+        if ($queryOrCalculator instanceof WorkPeriodCalculator) {
+            $this->entriesQuery = null;
+            $this->calculator = $queryOrCalculator;
+        } else {
+            $this->entriesQuery = $queryOrCalculator;
+            $this->calculator = $calculator ?? new WorkPeriodCalculator;
+        }
+    }
 
     public function headings(): array
     {
@@ -33,42 +51,52 @@ class TimesheetReportExport implements FromArray, WithHeadings
         ];
     }
 
-    public function array(): array
+    /**
+     * Yields data rows in memory-friendly chunks with eager-loaded relationships, followed by summary totals.
+     * Works identically for both XLSX and CSV streaming writers.
+     *
+     * @return Generator<int, array<int, mixed>>
+     */
+    public function generator(): Generator
     {
-        /** @var Collection<int, TimesheetEntry> $entries */
-        $entries = $this->report['entries'];
+        // 1. Stream data rows using lazy chunks (enables proper eager loading for relations)
+        if ($this->entriesQuery !== null) {
+            $chunkQuery = (clone $this->entriesQuery)
+                ->with(['user', 'branch'])
+                ->orderBy('work_date')
+                ->orderBy('id');
 
-        $rows = [];
+            foreach ($chunkQuery->lazy(500) as $row) {
+                yield $this->mapRow($row);
+            }
+        } elseif (! empty($this->report['entries'])) {
+            // Backward-compatibility fallback if passed a pre-built entries collection
+            foreach ($this->report['entries'] as $row) {
+                yield $this->mapRow($row);
+            }
+        } elseif (! empty($this->report['filters'])) {
+            // Query dynamically from filters in report if entriesQuery wasn't passed directly
+            $chunkQuery = app(\App\Services\ReportService::class)
+                ->filteredEntriesQuery($this->report['filters'])
+                ->with(['user', 'branch'])
+                ->orderBy('work_date')
+                ->orderBy('id');
 
-        foreach ($entries as $row) {
-            $isApproved = $row->status === TimesheetStatus::Approved;
-            $approvedHours = $isApproved ? $this->calculator->formatHours($row->total_minutes) : '0:00';
-
-            $rows[] = [
-                $row->user->name,
-                $row->branch->name,
-                $row->work_date->toDateString(),
-                $row->starts_at?->toDateTimeString() ?? '-',
-                $row->ends_at?->toDateTimeString() ?? 'Clocked In (Active)',
-                $this->calculator->formatHours($row->total_minutes),
-                $approvedHours,
-                $row->status instanceof TimesheetStatus ? $row->status->label() : (string) $row->status,
-                $row->is_late ? 'Yes' : 'No',
-                $row->late_minutes ?? 0,
-                optional($row->submitted_at)?->toDateTimeString(),
-            ];
+            foreach ($chunkQuery->lazy(500) as $row) {
+                yield $this->mapRow($row);
+            }
         }
 
-        // Summary calculations from integer minutes then formatted as HH:MM
-        $approvedMinutes = (int) ($this->report['approved_combined_minutes'] ?? $entries->where('status', TimesheetStatus::Approved)->sum('total_minutes'));
-        $pendingMinutes = (int) ($this->report['pending_minutes'] ?? $entries->where('status', TimesheetStatus::PendingApproval)->sum('total_minutes'));
-        $rejectedMinutes = (int) ($this->report['rejected_minutes'] ?? $entries->where('status', TimesheetStatus::Rejected)->sum('total_minutes'));
+        // 2. Summary calculations from integer minutes then formatted as HH:MM
+        $approvedMinutes = (int) ($this->report['approved_combined_minutes'] ?? 0);
+        $pendingMinutes = (int) ($this->report['pending_minutes'] ?? 0);
+        $rejectedMinutes = (int) ($this->report['rejected_minutes'] ?? 0);
 
         // Blank separator row
-        $rows[] = array_fill(0, 11, '');
+        yield array_fill(0, 11, '');
 
         // Summary header row
-        $rows[] = [
+        yield [
             'SUMMARY TOTALS',
             '',
             '',
@@ -83,7 +111,7 @@ class TimesheetReportExport implements FromArray, WithHeadings
         ];
 
         // Summary rows (server-calculated static values, avoiding formula injection)
-        $rows[] = [
+        yield [
             'Total Approved Hours',
             $this->calculator->formatHours($approvedMinutes),
             '',
@@ -97,7 +125,7 @@ class TimesheetReportExport implements FromArray, WithHeadings
             '',
         ];
 
-        $rows[] = [
+        yield [
             'Total Pending Hours',
             $this->calculator->formatHours($pendingMinutes),
             '',
@@ -111,7 +139,7 @@ class TimesheetReportExport implements FromArray, WithHeadings
             '',
         ];
 
-        $rows[] = [
+        yield [
             'Total Rejected Hours',
             $this->calculator->formatHours($rejectedMinutes),
             '',
@@ -124,7 +152,39 @@ class TimesheetReportExport implements FromArray, WithHeadings
             '',
             '',
         ];
+    }
 
-        return $rows;
+    /**
+     * Backward-compatibility helper for any legacy caller expecting array().
+     *
+     * @return array<int, array<int, mixed>>
+     */
+    public function array(): array
+    {
+        return iterator_to_array($this->generator(), false);
+    }
+
+    /**
+     * @param TimesheetEntry $row
+     * @return array<int, mixed>
+     */
+    private function mapRow(TimesheetEntry $row): array
+    {
+        $isApproved = $row->status === TimesheetStatus::Approved;
+        $approvedHours = $isApproved ? $this->calculator->formatHours($row->total_minutes) : '0:00';
+
+        return [
+            $row->user->name,
+            $row->branch->name,
+            $row->work_date->toDateString(),
+            $row->starts_at?->toDateTimeString() ?? '-',
+            $row->ends_at?->toDateTimeString() ?? 'Clocked In (Active)',
+            $this->calculator->formatHours($row->total_minutes),
+            $approvedHours,
+            $row->status instanceof TimesheetStatus ? $row->status->label() : (string) $row->status,
+            $row->is_late ? 'Yes' : 'No',
+            $row->late_minutes ?? 0,
+            optional($row->submitted_at)?->toDateTimeString(),
+        ];
     }
 }

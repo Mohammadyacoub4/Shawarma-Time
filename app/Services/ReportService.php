@@ -19,9 +19,10 @@ class ReportService
 
     /**
      * @param  array{branch_id?: int|null, user_id?: int|null, status?: string|null, from?: string|null, to?: string|null}  $filters
+     * @param  bool  $includeEntries
      * @return array<string, mixed>
      */
-    public function build(array $filters): array
+    public function build(array $filters, bool $includeEntries = false): array
     {
         $from = null;
         if (! empty($filters['from']) && is_string($filters['from'])) {
@@ -40,41 +41,81 @@ class ReportService
             }
         }
 
-        $entries = $this->filteredEntriesQuery($filters)->with(['user', 'branch'])->orderBy('work_date')->get();
-        $shifts = $this->filteredShiftsQuery($filters)->with(['user', 'branch'])->get();
+        // Fast SQL aggregation without hydrating full timesheet entry models
+        $metrics = $this->filteredEntriesQuery($filters)
+            ->selectRaw("
+                COUNT(*) as attendance_count,
+                COALESCE(SUM(CASE WHEN status = 'approved' THEN total_minutes ELSE 0 END), 0) as approved_combined_minutes,
+                COALESCE(SUM(CASE WHEN status = 'pending_approval' THEN total_minutes ELSE 0 END), 0) as pending_minutes,
+                COALESCE(SUM(CASE WHEN status = 'rejected' THEN total_minutes ELSE 0 END), 0) as rejected_minutes,
+                COALESCE(SUM(CASE WHEN is_late = 1 THEN 1 ELSE 0 END), 0) as late_count,
+                COALESCE(SUM(CASE WHEN is_late = 1 THEN late_minutes ELSE 0 END), 0) as late_minutes,
+                COALESCE(SUM(CASE WHEN ends_at IS NULL THEN 1 ELSE 0 END), 0) as missing_checkout_count
+            ")
+            ->first();
+
+        // Branch-level timesheet aggregates
+        $branchMetrics = $this->filteredEntriesQuery($filters)
+            ->selectRaw("
+                branch_id,
+                COALESCE(SUM(CASE WHEN status = 'approved' THEN total_minutes ELSE 0 END), 0) as approved_minutes,
+                COALESCE(SUM(CASE WHEN status = 'pending_approval' THEN total_minutes ELSE 0 END), 0) as pending_minutes,
+                COALESCE(SUM(CASE WHEN status = 'rejected' THEN total_minutes ELSE 0 END), 0) as rejected_minutes
+            ")
+            ->groupBy('branch_id')
+            ->get()
+            ->keyBy('branch_id');
+
+        // Scheduled shift minutes per branch
+        $shifts = $this->filteredShiftsQuery($filters)->get(['branch_id', 'starts_at', 'ends_at']);
+        $shiftsByBranch = $shifts->groupBy('branch_id');
+        $totalScheduledMinutes = $this->shiftMinutes($shifts);
 
         $byBranch = [];
         foreach (Branch::orderBy('name')->get() as $branch) {
-            $branchEntries = $entries->where('branch_id', $branch->id);
+            $bm = $branchMetrics->get($branch->id);
+            $branchShifts = $shiftsByBranch->get($branch->id, collect());
+
             $byBranch[$branch->id] = [
                 'branch' => $branch,
-                'approved_minutes' => $branchEntries->where('status', TimesheetStatus::Approved)->sum('total_minutes'),
-                'pending_minutes' => $branchEntries->where('status', TimesheetStatus::PendingApproval)->sum('total_minutes'),
-                'rejected_minutes' => $branchEntries->where('status', TimesheetStatus::Rejected)->sum('total_minutes'),
-                'scheduled_minutes' => $this->shiftMinutes($shifts->where('branch_id', $branch->id)),
+                'approved_minutes' => (int) ($bm->approved_minutes ?? 0),
+                'pending_minutes' => (int) ($bm->pending_minutes ?? 0),
+                'rejected_minutes' => (int) ($bm->rejected_minutes ?? 0),
+                'scheduled_minutes' => $this->shiftMinutes($branchShifts),
             ];
         }
 
-        $approvedCombined = $entries->where('status', TimesheetStatus::Approved)->sum('total_minutes');
+        $approvedCombined = (int) ($metrics->approved_combined_minutes ?? 0);
         $totalWorkingMinutes = $approvedCombined;
-        $lateCount = $entries->where('is_late', true)->count();
-        $lateMinutes = (int) $entries->where('is_late', true)->sum('late_minutes');
-        $missingCheckoutCount = $entries->whereNull('ends_at')->count();
+        $lateCount = (int) ($metrics->late_count ?? 0);
+        $lateMinutes = (int) ($metrics->late_minutes ?? 0);
+        $missingCheckoutCount = (int) ($metrics->missing_checkout_count ?? 0);
+        $attendanceCount = (int) ($metrics->attendance_count ?? 0);
+        $pendingMinutes = (int) ($metrics->pending_minutes ?? 0);
+        $rejectedMinutes = (int) ($metrics->rejected_minutes ?? 0);
 
-        return [
+        $result = [
             'filters' => compact('from', 'to') + $filters,
-            'entries' => $entries,
             'by_branch' => $byBranch,
             'total_working_minutes' => $totalWorkingMinutes,
             'approved_combined_minutes' => $approvedCombined,
-            'pending_minutes' => $entries->where('status', TimesheetStatus::PendingApproval)->sum('total_minutes'),
-            'rejected_minutes' => $entries->where('status', TimesheetStatus::Rejected)->sum('total_minutes'),
-            'scheduled_minutes' => $this->shiftMinutes($shifts),
+            'pending_minutes' => $pendingMinutes,
+            'rejected_minutes' => $rejectedMinutes,
+            'scheduled_minutes' => $totalScheduledMinutes,
             'late_count' => $lateCount,
             'late_minutes' => $lateMinutes,
             'missing_checkout_count' => $missingCheckoutCount,
-            'attendance_count' => $entries->count(),
+            'attendance_count' => $attendanceCount,
         ];
+
+        if ($includeEntries) {
+            $result['entries'] = $this->filteredEntriesQuery($filters)
+                ->with(['user', 'branch'])
+                ->orderBy('work_date')
+                ->get();
+        }
+
+        return $result;
     }
 
     /**
@@ -106,23 +147,41 @@ class ReportService
 
     public function employeeHourTotals(int $userId, ?Carbon $reference = null): array
     {
-        $ref = $reference ?? now(BranchTime::DEFAULT_TIMEZONE);
-        $dayStart = $ref->copy()->startOfDay()->toDateString();
-        $weekStart = BranchTime::weekStart($ref)->toDateString();
-        $weekEnd = BranchTime::weekEnd(BranchTime::weekStart($ref))->toDateString();
-        $monthStart = $ref->copy()->startOfMonth()->toDateString();
-        $monthEnd = $ref->copy()->endOfMonth()->toDateString();
+        $ref = $reference ? $reference->copy() : now(BranchTime::DEFAULT_TIMEZONE);
 
-        $approved = fn (string $from, string $to) => (int) TimesheetEntry::query()
+        $dayStart = $ref->copy()->startOfDay()->toDateString();
+        $dayEndExclusive = $ref->copy()->startOfDay()->addDay()->toDateString();
+
+        $weekStartCarbon = BranchTime::weekStart($ref);
+        $weekStart = $weekStartCarbon->toDateString();
+        $weekEndExclusive = BranchTime::weekEnd($weekStartCarbon)->copy()->startOfDay()->addDay()->toDateString();
+
+        $monthStart = $ref->copy()->startOfMonth()->toDateString();
+        $monthEndExclusive = $ref->copy()->endOfMonth()->copy()->startOfDay()->addDay()->toDateString();
+
+        $overallStart = min($dayStart, $weekStart, $monthStart);
+        $overallEndExclusive = max($dayEndExclusive, $weekEndExclusive, $monthEndExclusive);
+
+        $row = TimesheetEntry::query()
             ->where('user_id', $userId)
             ->where('status', TimesheetStatus::Approved)
-            ->whereBetween('work_date', [$from, $to])
-            ->sum('total_minutes');
+            ->where('work_date', '>=', $overallStart)
+            ->where('work_date', '<', $overallEndExclusive)
+            ->selectRaw("
+                COALESCE(SUM(CASE WHEN work_date >= ? AND work_date < ? THEN total_minutes ELSE 0 END), 0) AS daily_approved_minutes,
+                COALESCE(SUM(CASE WHEN work_date >= ? AND work_date < ? THEN total_minutes ELSE 0 END), 0) AS weekly_approved_minutes,
+                COALESCE(SUM(CASE WHEN work_date >= ? AND work_date < ? THEN total_minutes ELSE 0 END), 0) AS monthly_approved_minutes
+            ", [
+                $dayStart, $dayEndExclusive,
+                $weekStart, $weekEndExclusive,
+                $monthStart, $monthEndExclusive,
+            ])
+            ->first();
 
         return [
-            'daily_approved_minutes' => $approved($dayStart, $dayStart),
-            'weekly_approved_minutes' => $approved($weekStart, $weekEnd),
-            'monthly_approved_minutes' => $approved($monthStart, $monthEnd),
+            'daily_approved_minutes' => (int) ($row?->daily_approved_minutes ?? 0),
+            'weekly_approved_minutes' => (int) ($row?->weekly_approved_minutes ?? 0),
+            'monthly_approved_minutes' => (int) ($row?->monthly_approved_minutes ?? 0),
         ];
     }
 

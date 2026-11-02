@@ -14,6 +14,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Illuminate\View\View;
@@ -110,14 +111,21 @@ class EmployeeController extends Controller
     {
         abort_unless($employee->isEmployee(), 404);
 
+        $wasActive = (bool) $employee->is_active;
+        $newActiveStatus = $request->boolean('is_active', true);
+
         $employee->update([
             'name' => $request->string('name'),
             'email' => $request->string('email'),
             'phone' => $request->input('phone'),
-            'is_active' => $request->boolean('is_active', true),
+            'is_active' => $newActiveStatus,
         ]);
 
         $employee->branches()->sync($request->input('branch_ids'));
+
+        if ($wasActive && ! $newActiveStatus) {
+            $this->revokeUserSessions($employee);
+        }
 
         return redirect()->route('admin.employees.index')->with('status', 'Employee updated.');
     }
@@ -161,20 +169,8 @@ class EmployeeController extends Controller
             'is_active' => $newActiveStatus,
         ]);
 
-        if (! $newActiveStatus && config('session.driver') === 'database') {
-            try {
-                $sessionTable = (string) config('session.table', 'sessions');
-                $connection = config('session.connection');
-
-                if ($sessionTable !== '' && Schema::connection($connection)->hasTable($sessionTable)) {
-                    DB::connection($connection)
-                        ->table($sessionTable)
-                        ->where('user_id', $employee->id)
-                        ->delete();
-                }
-            } catch (\Throwable) {
-                // Safely handle any session table query or connection failure
-            }
+        if (! $newActiveStatus) {
+            $this->revokeUserSessions($employee);
         }
 
         $statusMsg = $employee->is_active
@@ -182,6 +178,33 @@ class EmployeeController extends Controller
             : 'تم إلغاء تفعيل حساب الموظف / Employee deactivated.';
 
         return back()->with('status', $statusMsg);
+    }
+
+    /**
+     * Revoke all active database sessions belonging to the given user.
+     */
+    protected function revokeUserSessions(User $user): void
+    {
+        if (config('session.driver') !== 'database') {
+            return;
+        }
+
+        try {
+            $sessionTable = (string) config('session.table', 'sessions');
+            $connection = config('session.connection');
+
+            if ($sessionTable !== '' && Schema::connection($connection)->hasTable($sessionTable)) {
+                DB::connection($connection)
+                    ->table($sessionTable)
+                    ->where('user_id', $user->id)
+                    ->delete();
+            }
+        } catch (\Throwable $e) {
+            Log::warning('Failed to revoke database sessions for deactivated employee.', [
+                'employee_id' => $user->id,
+                'error' => $e->getMessage(),
+            ]);
+        }
     }
 
     public function showResetPassword(User $employee): View

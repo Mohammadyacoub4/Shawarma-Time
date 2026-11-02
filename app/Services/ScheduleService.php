@@ -5,10 +5,12 @@ namespace App\Services;
 use App\Models\Branch;
 use App\Models\ScheduleWeek;
 use App\Models\Shift;
+use App\Models\TimesheetEntry;
 use App\Models\User;
 use App\Support\BranchTime;
 use Carbon\Carbon;
 use Carbon\CarbonInterface;
+use DomainException;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 
@@ -89,21 +91,30 @@ class ScheduleService
             $days = (array) ($data['days'] ?? []);
 
             foreach ($days as $dateString) {
-                // Find if shift already exists for this employee, branch, and work_date
+                $period = $this->calculator->fromStartEnd(
+                    $dateString,
+                    $data['start_time'],
+                    $data['end_time'],
+                    $branch
+                );
+
+                // Find if shift already exists for this employee, branch, work_date, and exact time window
                 $existingShift = Shift::where('branch_id', $branch->id)
                     ->where('user_id', $employee->id)
-                    ->where('work_date', $dateString)
+                    ->whereDate('work_date', $period['work_date'])
+                    ->where('starts_at', $period['starts_at'])
+                    ->where('ends_at', $period['ends_at'])
                     ->first();
 
                 $shiftData = [
                     'branch_id' => $branch->id,
                     'user_id' => $employee->id,
-                    'work_date' => $dateString,
+                    'work_date' => $period['work_date'],
                     'start_time' => $data['start_time'],
                     'end_time' => $data['end_time'],
-                    'grace_minutes' => $data['grace_minutes'] ?? $branch->grace_minutes ?? 15,
-                    'notes' => $data['notes'] ?? null,
-                    'internal_notes' => $data['internal_notes'] ?? null,
+                    'grace_minutes' => $data['grace_minutes'] ?? $existingShift?->grace_minutes ?? $branch->grace_minutes ?? 15,
+                    'notes' => array_key_exists('notes', $data) && $data['notes'] !== null ? $data['notes'] : ($existingShift?->notes),
+                    'internal_notes' => array_key_exists('internal_notes', $data) && $data['internal_notes'] !== null ? $data['internal_notes'] : ($existingShift?->internal_notes),
                 ];
 
                 $savedShifts[] = $this->upsertShift($shiftData, $existingShift);
@@ -125,6 +136,8 @@ class ScheduleService
 
         $prevShifts = Shift::where('branch_id', $branch->id)
             ->whereBetween('work_date', [$prevWeekStart->toDateString(), $prevWeekEnd->toDateString()])
+            ->orderBy('work_date')
+            ->orderBy('starts_at')
             ->get();
 
         if ($prevShifts->isEmpty()) {
@@ -135,28 +148,35 @@ class ScheduleService
             $copiedCount = 0;
 
             foreach ($prevShifts as $oldShift) {
-                // Day difference from previous week start
-                $dayOffset = Carbon::parse($oldShift->work_date->toDateString(), BranchTime::timezoneFor($branch))->diffInDays($oldShift->starts_at->copy()->startOfWeek());
                 $newWorkDate = $targetWeekStart->copy()->addDays($oldShift->work_date->dayOfWeekIso - 1)->toDateString();
 
                 $startTime = $oldShift->starts_at->timezone(BranchTime::timezoneFor($branch))->format('H:i');
                 $endTime = $oldShift->ends_at->timezone(BranchTime::timezoneFor($branch))->format('H:i');
 
-                // Check if shift already exists
+                $period = $this->calculator->fromStartEnd(
+                    $newWorkDate,
+                    $startTime,
+                    $endTime,
+                    $branch
+                );
+
+                // Find if shift already exists for this exact employee, branch, work_date, and time window
                 $existing = Shift::where('branch_id', $branch->id)
                     ->where('user_id', $oldShift->user_id)
-                    ->where('work_date', $newWorkDate)
+                    ->whereDate('work_date', $period['work_date'])
+                    ->where('starts_at', $period['starts_at'])
+                    ->where('ends_at', $period['ends_at'])
                     ->first();
 
                 $this->upsertShift([
                     'branch_id' => $branch->id,
                     'user_id' => $oldShift->user_id,
-                    'work_date' => $newWorkDate,
+                    'work_date' => $period['work_date'],
                     'start_time' => $startTime,
                     'end_time' => $endTime,
-                    'grace_minutes' => $oldShift->grace_minutes,
-                    'notes' => $oldShift->notes,
-                    'internal_notes' => $oldShift->internal_notes,
+                    'grace_minutes' => $oldShift->grace_minutes ?? $existing?->grace_minutes ?? $branch->grace_minutes ?? 15,
+                    'notes' => $oldShift->notes ?? $existing?->notes,
+                    'internal_notes' => $oldShift->internal_notes ?? $existing?->internal_notes,
                 ], $existing);
 
                 $copiedCount++;
@@ -234,9 +254,24 @@ class ScheduleService
         $weekStart = BranchTime::weekStart($weekStartDate, $branch);
         $weekEnd = BranchTime::weekEnd(Carbon::parse($weekStart->toDateString(), $tz));
 
-        return Shift::where('branch_id', $branch->id)
-            ->whereBetween('work_date', [$weekStart->toDateString(), $weekEnd->toDateString()])
-            ->delete();
+        return DB::transaction(function () use ($branch, $weekStart, $weekEnd) {
+            $shiftIds = Shift::where('branch_id', $branch->id)
+                ->whereBetween('work_date', [$weekStart->toDateString(), $weekEnd->toDateString()])
+                ->lockForUpdate()
+                ->pluck('id');
+
+            if ($shiftIds->isEmpty()) {
+                return 0;
+            }
+
+            $hasTimesheets = TimesheetEntry::whereIn('shift_id', $shiftIds)->exists();
+
+            if ($hasTimesheets) {
+                throw new DomainException('Cannot clear week: one or more shifts have associated timesheet records.');
+            }
+
+            return Shift::whereIn('id', $shiftIds)->delete();
+        });
     }
 
     public function deleteShift(Shift $shift): void

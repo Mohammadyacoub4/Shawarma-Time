@@ -247,6 +247,7 @@ class TimesheetIntegrityAndOverlapTest extends TestCase
         $this->assertEquals(TimesheetStatus::Approved, $updated->status);
         $this->assertEquals($this->admin->id, $updated->reviewed_by);
         $this->assertEquals('Updated notes by manager', $updated->employee_notes);
+        $this->assertEquals('admin_metadata_updated', $updated->latestAuditLog->action);
     }
 
     public function test_admin_substantive_update_resets_approved_to_pending(): void
@@ -276,6 +277,10 @@ class TimesheetIntegrityAndOverlapTest extends TestCase
         $this->assertEquals(TimesheetStatus::PendingApproval, $updated->status);
         $this->assertNull($updated->reviewed_by);
         $this->assertNull($updated->reviewed_at);
+        $this->assertEquals('admin_time_adjusted', $updated->latestAuditLog->action);
+        $this->assertEquals($this->admin->id, $updated->latestAuditLog->old_values['reviewed_by']);
+        $this->assertEquals(TimesheetStatus::Approved->value, $updated->latestAuditLog->old_values['status']);
+        $this->assertNotNull($updated->latestAuditLog->old_values['reviewed_at']);
     }
 
     public function test_duplicate_shift_claim_is_rejected(): void

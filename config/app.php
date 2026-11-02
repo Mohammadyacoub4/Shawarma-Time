@@ -56,6 +56,19 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Trusted Proxies
+    |--------------------------------------------------------------------------
+    |
+    | The IP addresses and CIDR ranges of trusted proxies. When running behind
+    | a reverse proxy or load balancer, specify them here so that forwarded
+    | headers (client IP, protocol, host) are correctly recognized.
+    |
+    */
+
+    'trusted_proxies' => env('TRUSTED_PROXIES'),
+
+    /*
+    |--------------------------------------------------------------------------
     | Application Timezone
     |--------------------------------------------------------------------------
     |

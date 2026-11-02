@@ -11,12 +11,28 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
-        $trustedProxies = env('TRUSTED_PROXIES');
-        if ($trustedProxies) {
-            $middleware->trustProxies(at: str_contains($trustedProxies, ',')
-                ? array_map('trim', explode(',', $trustedProxies))
-                : $trustedProxies);
-        }
+        app()->booted(function () use ($middleware) {
+            $trustedProxies = config('app.trusted_proxies');
+
+            if (is_string($trustedProxies)) {
+                $trimmed = trim($trustedProxies);
+                if ($trimmed === '*' || $trimmed === '**') {
+                    $middleware->trustProxies(at: $trimmed);
+                } elseif ($trimmed !== '') {
+                    $ips = array_values(array_filter(array_map('trim', explode(',', $trimmed)), fn ($ip) => $ip !== ''));
+                    if (! empty($ips)) {
+                        $middleware->trustProxies(at: $ips);
+                    }
+                }
+            } elseif (is_array($trustedProxies) && ! empty($trustedProxies)) {
+                $first = is_string(reset($trustedProxies)) ? trim(reset($trustedProxies)) : null;
+                if (count($trustedProxies) === 1 && ($first === '*' || $first === '**')) {
+                    $middleware->trustProxies(at: $first);
+                } else {
+                    $middleware->trustProxies(at: $trustedProxies);
+                }
+            }
+        });
 
         $middleware->web(append: [
             \App\Http\Middleware\SetLocale::class,

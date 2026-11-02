@@ -8,6 +8,7 @@ use App\Models\ScheduleWeek;
 use App\Models\Shift;
 use App\Models\TimesheetEntry;
 use App\Models\User;
+use App\Support\BranchTime;
 use Carbon\Carbon;
 use Database\Seeders\BranchSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -439,5 +440,217 @@ class AttendanceTest extends TestCase
             ->get(route('employee.schedules.index', ['branch_id' => $this->branch->id, 'week' => $monday]))
             ->assertOk()
             ->assertSee('No published shifts');
+    }
+
+    public function test_overnight_shift_clock_in_after_midnight_matches_previous_day_shift(): void
+    {
+        $employee = $this->makeEmployee([$this->branch->id]);
+        $tz = BranchTime::timezoneFor($this->branch);
+
+        $shiftDate = '2026-11-01'; // Sunday
+        $startLocal = Carbon::parse('2026-11-01 22:00:00', $tz);
+        $endLocal = Carbon::parse('2026-11-02 06:00:00', $tz);
+
+        $week = ScheduleWeek::factory()->for($this->branch)->published()->create([
+            'week_start' => BranchTime::weekStart($shiftDate, $this->branch)->toDateString(),
+        ]);
+
+        $shift = Shift::create([
+            'schedule_week_id' => $week->id,
+            'user_id' => $employee->id,
+            'branch_id' => $this->branch->id,
+            'work_date' => $shiftDate,
+            'starts_at' => $startLocal->copy()->utc(),
+            'ends_at' => $endLocal->copy()->utc(),
+            'grace_minutes' => 15,
+        ]);
+
+        // Clock in Monday at 01:00 (3 hours after Sunday 22:00 start)
+        Carbon::setTestNow(Carbon::parse('2026-11-02 01:00:00', $tz)->utc());
+
+        $this->actingAs($employee)->post(route('employee.attendance.clock-in'), [
+            'branch_id' => $this->branch->id,
+        ]);
+
+        $entry = TimesheetEntry::where('user_id', $employee->id)->firstOrFail();
+        $this->assertSame($shift->id, $entry->shift_id);
+        $this->assertSame('2026-11-01', $entry->work_date->toDateString());
+        $this->assertTrue($entry->is_late);
+        $this->assertSame(180, $entry->late_minutes);
+
+        Carbon::setTestNow();
+    }
+
+    public function test_early_clock_in_before_midnight_matches_post_midnight_shift(): void
+    {
+        $employee = $this->makeEmployee([$this->branch->id]);
+        $tz = BranchTime::timezoneFor($this->branch);
+
+        $shiftDate = '2026-11-02'; // Monday
+        $startLocal = Carbon::parse('2026-11-02 00:30:00', $tz);
+        $endLocal = Carbon::parse('2026-11-02 08:30:00', $tz);
+
+        $week = ScheduleWeek::factory()->for($this->branch)->published()->create([
+            'week_start' => BranchTime::weekStart($shiftDate, $this->branch)->toDateString(),
+        ]);
+
+        $shift = Shift::create([
+            'schedule_week_id' => $week->id,
+            'user_id' => $employee->id,
+            'branch_id' => $this->branch->id,
+            'work_date' => $shiftDate,
+            'starts_at' => $startLocal->copy()->utc(),
+            'ends_at' => $endLocal->copy()->utc(),
+            'grace_minutes' => 15,
+        ]);
+
+        // Clock in Sunday at 23:45 (45 minutes early, within 60-min window)
+        Carbon::setTestNow(Carbon::parse('2026-11-01 23:45:00', $tz)->utc());
+
+        $this->actingAs($employee)->post(route('employee.attendance.clock-in'), [
+            'branch_id' => $this->branch->id,
+        ]);
+
+        $entry = TimesheetEntry::where('user_id', $employee->id)->firstOrFail();
+        $this->assertSame($shift->id, $entry->shift_id);
+        $this->assertSame('2026-11-02', $entry->work_date->toDateString());
+        $this->assertFalse($entry->is_late);
+        $this->assertSame(0, $entry->late_minutes);
+
+        Carbon::setTestNow();
+    }
+
+    public function test_overnight_shift_clock_in_at_exact_end_and_after_end_boundary(): void
+    {
+        $employee = $this->makeEmployee([$this->branch->id]);
+        $tz = BranchTime::timezoneFor($this->branch);
+
+        $shiftDate = '2026-11-01'; // Sunday
+        $startLocal = Carbon::parse('2026-11-01 22:00:00', $tz);
+        $endLocal = Carbon::parse('2026-11-02 06:00:00', $tz);
+
+        $week = ScheduleWeek::factory()->for($this->branch)->published()->create([
+            'week_start' => BranchTime::weekStart($shiftDate, $this->branch)->toDateString(),
+        ]);
+
+        $shift = Shift::create([
+            'schedule_week_id' => $week->id,
+            'user_id' => $employee->id,
+            'branch_id' => $this->branch->id,
+            'work_date' => $shiftDate,
+            'starts_at' => $startLocal->copy()->utc(),
+            'ends_at' => $endLocal->copy()->utc(),
+            'grace_minutes' => 15,
+        ]);
+
+        // 1. Exactly at end time (06:00:00) -> must match
+        Carbon::setTestNow($endLocal->copy()->utc());
+        $service = app(\App\Services\TimesheetService::class);
+        $entryExact = $service->clockIn($employee, $this->branch->id);
+
+        $this->assertSame($shift->id, $entryExact->shift_id);
+        $this->assertSame('2026-11-01', $entryExact->work_date->toDateString());
+
+        // Clock out and delete entry to reset
+        $service->clockOut($employee);
+        $entryExact->delete();
+
+        // 2. 1 second after end time (06:00:01) -> must NOT match shift (remains unlinked unscheduled)
+        Carbon::setTestNow($endLocal->copy()->addSecond()->utc());
+        $entryPast = $service->clockIn($employee, $this->branch->id);
+
+        $this->assertNull($entryPast->shift_id);
+        $this->assertSame('2026-11-02', $entryPast->work_date->toDateString());
+
+        Carbon::setTestNow();
+    }
+
+    public function test_overnight_shift_clock_out_calculates_minutes_and_preserves_shift_work_date(): void
+    {
+        $employee = $this->makeEmployee([$this->branch->id]);
+        $tz = BranchTime::timezoneFor($this->branch);
+
+        $shiftDate = '2026-11-01'; // Sunday
+        $startLocal = Carbon::parse('2026-11-01 22:00:00', $tz);
+        $endLocal = Carbon::parse('2026-11-02 06:00:00', $tz);
+
+        $week = ScheduleWeek::factory()->for($this->branch)->published()->create([
+            'week_start' => BranchTime::weekStart($shiftDate, $this->branch)->toDateString(),
+        ]);
+
+        $shift = Shift::create([
+            'schedule_week_id' => $week->id,
+            'user_id' => $employee->id,
+            'branch_id' => $this->branch->id,
+            'work_date' => $shiftDate,
+            'starts_at' => $startLocal->copy()->utc(),
+            'ends_at' => $endLocal->copy()->utc(),
+            'grace_minutes' => 15,
+        ]);
+
+        // Clock in Monday at 01:00
+        Carbon::setTestNow(Carbon::parse('2026-11-02 01:00:00', $tz)->utc());
+        $service = app(\App\Services\TimesheetService::class);
+        $entry = $service->clockIn($employee, $this->branch->id, 'Late start on graveyard');
+
+        $this->assertSame($shift->id, $entry->shift_id);
+        $this->assertSame('2026-11-01', $entry->work_date->toDateString());
+
+        // Clock out Monday at 06:00 (5 hours = 300 minutes)
+        Carbon::setTestNow(Carbon::parse('2026-11-02 06:00:00', $tz)->utc());
+        $this->actingAs($employee)->post(route('employee.attendance.clock-out'), [
+            'notes' => 'Shift finished',
+        ]);
+
+        $fresh = $entry->fresh();
+        $this->assertSame(TimesheetStatus::PendingApproval, $fresh->status);
+        $this->assertSame(300, $fresh->total_minutes);
+        $this->assertSame($shift->id, $fresh->shift_id);
+        $this->assertSame('2026-11-01', $fresh->work_date->toDateString());
+
+        Carbon::setTestNow();
+    }
+
+    public function test_existing_rejected_timesheet_prevents_reusing_same_shift_during_clock_in(): void
+    {
+        $employee = $this->makeEmployee([$this->branch->id]);
+        $today = '2026-11-02';
+        $tz = BranchTime::timezoneFor($this->branch);
+
+        $shiftStart = Carbon::parse("{$today} 09:00:00", $tz);
+        $shiftEnd = Carbon::parse("{$today} 17:00:00", $tz);
+
+        $week = ScheduleWeek::factory()->for($this->branch)->published()->create();
+        $shift = Shift::create([
+            'schedule_week_id' => $week->id,
+            'user_id' => $employee->id,
+            'branch_id' => $this->branch->id,
+            'work_date' => $today,
+            'starts_at' => $shiftStart->copy()->utc(),
+            'ends_at' => $shiftEnd->copy()->utc(),
+            'grace_minutes' => 15,
+        ]);
+
+        // Pre-existing rejected entry for this shift
+        TimesheetEntry::create([
+            'user_id' => $employee->id,
+            'branch_id' => $this->branch->id,
+            'shift_id' => $shift->id,
+            'work_date' => $today,
+            'starts_at' => $shiftStart->copy()->utc(),
+            'ends_at' => $shiftEnd->copy()->utc(),
+            'total_minutes' => 480,
+            'status' => TimesheetStatus::Rejected,
+        ]);
+
+        // Clock in at 09:00 - shift has a timesheet entry, so it must not be linked
+        Carbon::setTestNow($shiftStart->copy()->utc());
+        $service = app(\App\Services\TimesheetService::class);
+        $entry = $service->clockIn($employee, $this->branch->id);
+
+        $this->assertNull($entry->shift_id);
+        $this->assertSame($today, $entry->work_date->toDateString());
+
+        Carbon::setTestNow();
     }
 }

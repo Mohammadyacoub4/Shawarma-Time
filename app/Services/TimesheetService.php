@@ -59,10 +59,17 @@ class TimesheetService
             $localNow = $now->copy()->timezone($tz);
             $workDate = $localNow->toDateString();
 
-            // Look for matching scheduled shift for today
+            // Look for matching scheduled shift within allowed early/ongoing window
+            // Allowed window: now >= starts_at - 60 minutes (starts_at <= now + 60 minutes) AND now <= ends_at
+            // Shift must not have any existing timesheet entry (including rejected)
+            $nowUtcString = $now->copy()->utc()->format('Y-m-d H:i:s');
+            $maxStartsAtString = $now->copy()->utc()->addMinutes(60)->format('Y-m-d H:i:s');
+
             $shift = Shift::where('user_id', $lockedUser->id)
                 ->where('branch_id', $branch->id)
-                ->whereDate('work_date', $workDate)
+                ->whereDoesntHave('timesheetEntries')
+                ->where('starts_at', '<=', $maxStartsAtString)
+                ->where('ends_at', '>=', $nowUtcString)
                 ->orderBy('starts_at')
                 ->first();
 
@@ -90,11 +97,13 @@ class TimesheetService
                 }
             }
 
+            $entryWorkDate = $shift ? $shift->work_date->toDateString() : $workDate;
+
             $entry = TimesheetEntry::create([
                 'user_id' => $lockedUser->id,
                 'branch_id' => $branch->id,
                 'shift_id' => $shift?->id,
-                'work_date' => $workDate,
+                'work_date' => $entryWorkDate,
                 'starts_at' => $now,
                 'ends_at' => null,
                 'total_minutes' => 0,
@@ -203,6 +212,11 @@ class TimesheetService
             }
 
             $branch = Branch::findOrFail($data['branch_id']);
+
+            if (! $lockedUser->isAssignedToBranch($branch->id)) {
+                throw new InvalidArgumentException('Employee is not assigned to this branch.');
+            }
+
             $period = $this->calculator->fromStartEnd(
                 $data['work_date'],
                 $data['start_time'],
@@ -210,7 +224,39 @@ class TimesheetService
                 $branch
             );
 
+            // Future-date validation in branch timezone
+            $todayLocal = now(BranchTime::timezoneFor($branch))->toDateString();
+            if ($period['work_date'] > $todayLocal) {
+                throw ValidationException::withMessages([
+                    'work_date' => ['تاريخ العمل لا يمكن أن يكون في المستقبل / The work date cannot be in the future.'],
+                ]);
+            }
+
             $shiftId = ! empty($data['shift_id']) ? (int) $data['shift_id'] : null;
+
+            if ($shiftId !== null) {
+                $shift = Shift::with('scheduleWeek')->findOrFail($shiftId);
+
+                if ($shift->user_id !== $lockedUser->id) {
+                    throw new InvalidArgumentException('Shift does not belong to the employee.');
+                }
+
+                if ($shift->branch_id !== $branch->id) {
+                    throw new InvalidArgumentException('Shift does not belong to the selected branch.');
+                }
+
+                if ($shift->schedule_week_id && ! $shift->scheduleWeek?->is_published) {
+                    throw ValidationException::withMessages([
+                        'shift_id' => ['لا يمكن تقديم سجل دوام لوردية غير منشورة / Cannot submit a timesheet for an unpublished shift.'],
+                    ]);
+                }
+
+                if ($shift->work_date->toDateString() !== $period['work_date']) {
+                    throw ValidationException::withMessages([
+                        'work_date' => ['تاريخ العمل يجب أن يتطابق مع تاريخ الوردية المجدولة / The work date must match the scheduled shift date.'],
+                    ]);
+                }
+            }
 
             // STEP 3: Overlap validation across all branches and duplicate shift check
             $this->overlapValidator->validate(
@@ -258,7 +304,7 @@ class TimesheetService
             $lockedUser = User::where('id', $employeeId)->lockForUpdate()->firstOrFail();
             $lockedEntry = TimesheetEntry::where('id', $entry->id)->lockForUpdate()->firstOrFail();
 
-            $old = $lockedEntry->only(['work_date', 'starts_at', 'ends_at', 'total_minutes', 'status', 'branch_id', 'shift_id', 'employee_notes']);
+            $old = $lockedEntry->only(['work_date', 'starts_at', 'ends_at', 'total_minutes', 'status', 'branch_id', 'shift_id', 'employee_notes', 'reviewed_by', 'reviewed_at']);
 
             $targetBranchId = (int) $data['branch_id'];
             $targetBranch = Branch::findOrFail($targetBranchId);
@@ -271,6 +317,24 @@ class TimesheetService
             );
 
             $shiftId = ! empty($data['shift_id']) ? (int) $data['shift_id'] : null;
+
+            if ($shiftId !== null) {
+                $shift = Shift::findOrFail($shiftId);
+
+                if ($shift->user_id !== $lockedUser->id) {
+                    throw new InvalidArgumentException('Shift does not belong to the timesheet employee.');
+                }
+
+                if ($shift->branch_id !== $targetBranchId) {
+                    throw new InvalidArgumentException('Shift does not belong to the selected branch.');
+                }
+
+                if ($shift->work_date->toDateString() !== $period['work_date']) {
+                    throw ValidationException::withMessages([
+                        'work_date' => ['تاريخ العمل يجب أن يتطابق مع تاريخ الوردية المجدولة / The work date must match the scheduled shift date.'],
+                    ]);
+                }
+            }
 
             // STEP 3 & STEP 7: Check overlap excluding the edited entry
             $this->overlapValidator->validate(
@@ -304,7 +368,10 @@ class TimesheetService
 
             $lockedEntry->save();
 
-            $this->log($lockedEntry, $admin, 'admin_edited', $old, $lockedEntry->fresh()->toArray());
+            $action = $substantiveChange ? 'admin_time_adjusted' : 'admin_metadata_updated';
+            $adminNotes = ! empty($data['admin_notes']) ? (string) $data['admin_notes'] : null;
+
+            $this->log($lockedEntry, $admin, $action, $old, $lockedEntry->fresh()->toArray(), $adminNotes);
 
             return $lockedEntry;
         });

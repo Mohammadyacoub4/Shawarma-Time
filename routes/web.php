@@ -19,12 +19,61 @@ Route::get('/', function () {
         : redirect()->route('login');
 });
 
-Route::get('/locale/{lang}', function (string $lang) {
-    if (in_array($lang, ['ar', 'en'])) {
+Route::get('/locale/{lang}', function (\Illuminate\Http\Request $request, string $lang) {
+    if (in_array($lang, ['ar', 'en'], true)) {
         session(['locale' => $lang, 'direction' => $lang === 'ar' ? 'rtl' : 'ltr']);
     }
 
-    return back();
+    $fallback = auth()->check() ? route('dashboard') : route('login');
+    $referer = $request->headers->get('referer');
+
+    if (! $referer || ! is_string($referer)) {
+        return redirect()->to($fallback);
+    }
+
+    // Reject protocol-relative and backslash-prefixed evasion strings upfront
+    if (str_starts_with($referer, '//') || str_starts_with($referer, '/\\') || str_starts_with($referer, '\\')) {
+        return redirect()->to($fallback);
+    }
+
+    $parts = parse_url($referer);
+    if ($parts === false) {
+        return redirect()->to($fallback);
+    }
+
+    // When an absolute URL with host is provided, validate scheme, host, and port against current request
+    if (isset($parts['host'])) {
+        $scheme = $parts['scheme'] ?? '';
+        if (! in_array(strtolower($scheme), ['http', 'https'], true) || strtolower($scheme) !== strtolower($request->getScheme())) {
+            return redirect()->to($fallback);
+        }
+
+        if (strcasecmp($parts['host'], $request->getHost()) !== 0) {
+            return redirect()->to($fallback);
+        }
+
+        $expectedPort = (int) $request->getPort();
+        $refererPort = isset($parts['port']) ? (int) $parts['port'] : ($scheme === 'https' ? 443 : 80);
+        if ($refererPort !== $expectedPort) {
+            return redirect()->to($fallback);
+        }
+    }
+
+    // Extract path and validate that it is a safe relative local path
+    $path = $parts['path'] ?? '/';
+    if (! str_starts_with($path, '/') || str_starts_with($path, '//') || str_starts_with($path, '/\\') || str_contains($path, '\\')) {
+        return redirect()->to($fallback);
+    }
+
+    // Prevent recursive loop if referer points back to locale switcher
+    if (str_starts_with($path, '/locale/')) {
+        return redirect()->to($fallback);
+    }
+
+    $query = isset($parts['query']) ? '?' . $parts['query'] : '';
+    $fragment = isset($parts['fragment']) ? '#' . $parts['fragment'] : '';
+
+    return redirect()->to($path . $query . $fragment);
 })->name('locale.switch');
 
 Route::middleware(['auth', 'active', 'password.change'])->group(function () {

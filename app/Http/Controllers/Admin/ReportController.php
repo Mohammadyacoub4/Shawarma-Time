@@ -41,12 +41,13 @@ class ReportController extends Controller
     {
         $filters = $this->filtersFromRequest($request);
         $report = $reports->build($filters);
+        $entriesQuery = $reports->filteredEntriesQuery($filters);
         $format = strtolower($request->input('format', 'xlsx'));
         $ext = $format === 'csv' ? 'csv' : 'xlsx';
         $writerType = $format === 'csv' ? \Maatwebsite\Excel\Excel::CSV : \Maatwebsite\Excel\Excel::XLSX;
         $filename = 'shawarma-time-report-'.now()->format('Y-m-d-His').'.'.$ext;
 
-        return Excel::download(new TimesheetReportExport($report), $filename, $writerType);
+        return Excel::download(new TimesheetReportExport($report, $entriesQuery), $filename, $writerType);
     }
 
     private function parseDateOrFallback(?string $value, string $fallback): string

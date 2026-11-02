@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class TimesheetEntry extends Model
 {
@@ -131,5 +132,10 @@ class TimesheetEntry extends Model
     public function auditLogs(): HasMany
     {
         return $this->hasMany(TimesheetAuditLog::class);
+    }
+
+    public function latestAuditLog(): HasOne
+    {
+        return $this->hasOne(TimesheetAuditLog::class)->latestOfMany('id');
     }
 }

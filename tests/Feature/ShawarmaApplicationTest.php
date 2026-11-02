@@ -525,12 +525,18 @@ class ShawarmaApplicationTest extends TestCase
     public function test_employee_can_submit_timesheet_using_own_shift_in_matching_branch(): void
     {
         $employee = $this->makeEmployee([$this->richmond->id]);
-        $shift = Shift::factory()->for($this->richmond)->for($employee)->create();
+        $workDate = now(BranchTime::DEFAULT_TIMEZONE)->toDateString();
+        $week = ScheduleWeek::factory()->for($this->richmond)->published()->create();
+        $shift = Shift::factory()->for($this->richmond)->for($employee)->for($week)->create([
+            'work_date' => $workDate,
+            'starts_at' => BranchTime::toUtc(BranchTime::combineLocalDateAndTime($workDate, '09:00', $this->richmond)),
+            'ends_at' => BranchTime::toUtc(BranchTime::combineLocalDateAndTime($workDate, '17:00', $this->richmond)),
+        ]);
 
         $response = $this->actingAs($employee)->post(route('employee.timesheets.store'), [
             'branch_id' => $this->richmond->id,
             'shift_id' => $shift->id,
-            'work_date' => now(BranchTime::DEFAULT_TIMEZONE)->toDateString(),
+            'work_date' => $workDate,
             'start_time' => '09:00',
             'end_time' => '17:00',
         ]);

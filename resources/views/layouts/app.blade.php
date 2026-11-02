@@ -20,9 +20,6 @@
 
     <!-- Scripts & Styles -->
     @vite(['resources/css/app.css', 'resources/js/app.js'])
-
-    <!-- Alpine.js -->
-    <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
 </head>
 <body class="bg-dark-900 text-dark-100 antialiased min-h-screen">
 
@@ -219,6 +216,46 @@
                     {{ app()->getLocale() === 'ar' ? 'سجل يدوي' : 'Manual Entry' }}
                 </a>
             @endif
+
+            {{-- MOBILE USER ACCOUNT & LOGOUT --}}
+            <div class="pt-3 mt-3 border-t border-dark-800">
+                <div class="flex items-center gap-3 px-3 py-2 mb-1">
+                    <span class="w-8 h-8 rounded-full bg-brand-500/20 border border-brand-500/30 flex items-center justify-center text-brand-400 font-bold text-xs shrink-0">
+                        {{ mb_substr(Auth::user()->name, 0, 1) }}
+                    </span>
+                    <div class="min-w-0 flex-1">
+                        <p class="text-sm font-medium text-white truncate">{{ Auth::user()->name }}</p>
+                        <p class="text-xs text-dark-400">
+                            @if(Auth::user()->isAdmin())
+                                {{ app()->getLocale() === 'ar' ? 'مدير النظام' : 'Admin' }}
+                            @else
+                                {{ app()->getLocale() === 'ar' ? 'موظف' : 'Staff' }}
+                            @endif
+                        </p>
+                    </div>
+                </div>
+
+                <div class="space-y-1">
+                    <a href="{{ route('profile.edit') }}"
+                       class="flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm {{ request()->routeIs('profile.edit') ? 'bg-brand-500/10 text-brand-400 font-semibold' : 'text-dark-300 hover:bg-dark-800 hover:text-white' }} transition-colors">
+                        <svg class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M17.982 18.725A7.488 7.488 0 0012 15.75a7.488 7.488 0 00-5.982 2.975m11.963 0a9 9 0 10-11.963 0m11.963 0A8.966 8.966 0 0112 21a8.966 8.966 0 01-5.982-2.275M15 9.75a3 3 0 11-6 0 3 3 0 016 0z" />
+                        </svg>
+                        <span>{{ app()->getLocale() === 'ar' ? 'الملف الشخصي' : 'Profile' }}</span>
+                    </a>
+
+                    <form method="POST" action="{{ route('logout') }}">
+                        @csrf
+                        <button type="submit"
+                                class="w-full flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm text-dark-300 hover:bg-dark-800 hover:text-red-400 transition-colors {{ app()->getLocale() === 'ar' ? 'text-right' : 'text-left' }}">
+                            <svg class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15M12 9l-3 3m0 0l3 3m-3-3h12.75" />
+                            </svg>
+                            <span>{{ app()->getLocale() === 'ar' ? 'تسجيل الخروج' : 'Sign Out' }}</span>
+                        </button>
+                    </form>
+                </div>
+            </div>
         </div>
     </nav>
 

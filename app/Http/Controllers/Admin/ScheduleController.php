@@ -12,6 +12,7 @@ use App\Models\User;
 use App\Services\ScheduleService;
 use App\Support\BranchTime;
 use Carbon\Carbon;
+use DomainException;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
@@ -158,7 +159,11 @@ class ScheduleController extends Controller
 
     public function destroy(Shift $shift, ScheduleService $scheduleService): RedirectResponse
     {
-        $scheduleService->deleteShift($shift);
+        try {
+            $scheduleService->deleteShift($shift);
+        } catch (DomainException $e) {
+            return back()->withErrors(['shift' => $e->getMessage()]);
+        }
 
         return back()->with('status', 'تم حذف المناوبة بنجاح / Shift deleted.');
     }
@@ -201,7 +206,11 @@ class ScheduleController extends Controller
         $branch = Branch::findOrFail($request->integer('branch_id'));
         $weekStart = BranchTime::weekStart($request->input('week_start'), $branch)->toDateString();
 
-        $deleted = $scheduleService->clearWeek($branch, $weekStart);
+        try {
+            $deleted = $scheduleService->clearWeek($branch, $weekStart);
+        } catch (DomainException $e) {
+            return back()->withErrors(['shift' => $e->getMessage()]);
+        }
 
         return back()->with('status', "تم مسح جميع مناوبات هذا الأسبوع ({$deleted} مناوبة) / Cleared {$deleted} shifts.");
     }

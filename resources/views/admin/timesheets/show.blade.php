@@ -102,7 +102,7 @@
                         <div>
                             <x-input-label for="admin_notes" value="Admin notes (optional)" />
                             <textarea name="admin_notes" id="admin_notes" rows="2"
-                                      class="form-input resize-none">{{ old('admin_notes', $entry->admin_notes ?? '') }}</textarea>
+                                      class="form-input resize-none">{{ old('admin_notes', '') }}</textarea>
                         </div>
 
                         <x-primary-button class="w-full justify-center">

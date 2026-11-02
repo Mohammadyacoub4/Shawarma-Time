@@ -35,6 +35,15 @@ class Shift extends Model
         ];
     }
 
+    protected static function booted(): void
+    {
+        static::deleting(function (Shift $shift) {
+            if ($shift->timesheetEntries()->exists()) {
+                throw new \DomainException('Cannot delete a shift that has associated timesheet records.');
+            }
+        });
+    }
+
     protected function startsAt(): Attribute
     {
         return Attribute::make(

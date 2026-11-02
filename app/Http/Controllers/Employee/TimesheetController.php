@@ -38,9 +38,21 @@ class TimesheetController extends Controller
         }
 
         if ($request->filled('shift_id')) {
-            $shift = Shift::findOrFail($request->integer('shift_id'));
+            $shift = Shift::with('scheduleWeek')->findOrFail($request->integer('shift_id'));
             if ($shift->user_id !== $user->id || $shift->branch_id !== (int) $request->input('branch_id')) {
                 abort(403);
+            }
+
+            if (! $shift->scheduleWeek?->is_published) {
+                return back()->withInput()->withErrors([
+                    'shift_id' => 'Cannot submit a timesheet for an unpublished shift.',
+                ]);
+            }
+
+            if ($shift->work_date->toDateString() !== $request->input('work_date')) {
+                return back()->withInput()->withErrors([
+                    'work_date' => 'The work date must match the scheduled shift date.',
+                ]);
             }
         }
 
@@ -72,9 +84,21 @@ class TimesheetController extends Controller
         }
 
         if ($request->filled('shift_id')) {
-            $shift = Shift::findOrFail($request->integer('shift_id'));
+            $shift = Shift::with('scheduleWeek')->findOrFail($request->integer('shift_id'));
             if ($shift->user_id !== $request->user()->id || $shift->branch_id !== (int) $request->input('branch_id')) {
                 abort(403);
+            }
+
+            if (! $shift->scheduleWeek?->is_published) {
+                return back()->withInput()->withErrors([
+                    'shift_id' => 'Cannot submit a timesheet for an unpublished shift.',
+                ]);
+            }
+
+            if ($shift->work_date->toDateString() !== $request->input('work_date')) {
+                return back()->withInput()->withErrors([
+                    'work_date' => 'The work date must match the scheduled shift date.',
+                ]);
             }
         }
 

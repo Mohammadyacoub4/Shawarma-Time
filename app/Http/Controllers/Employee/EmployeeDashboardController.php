@@ -18,19 +18,23 @@ class EmployeeDashboardController extends Controller
     public function __invoke(ReportService $reports, WorkPeriodCalculator $calculator): View
     {
         $user = auth()->user();
-        $userBranch = $user->branches()->first();
+        $userBranches = $user->branches()->orderBy('name')->get();
+        $userBranch = $userBranches->first();
+        $branchIds = $userBranches->pluck('id');
         $tz = BranchTime::timezoneFor($userBranch);
         $today = now($tz)->toDateString();
 
+        $now = now();
+        $nowUtcString = $now->copy()->utc()->format('Y-m-d H:i:s');
+        $maxEarlyStartUtcString = $now->copy()->utc()->addMinutes(60)->format('Y-m-d H:i:s');
+
         $upcomingShifts = Shift::with(['branch', 'scheduleWeek'])
             ->where('user_id', $user->id)
-            ->whereDate('work_date', '>=', $today)
             ->whereHas('scheduleWeek', fn ($q) => $q->where('is_published', true))
+            ->where('ends_at', '>=', $nowUtcString)
             ->orderBy('starts_at')
             ->limit(10)
             ->get();
-
-        $branchIds = $user->branches()->pluck('branches.id');
 
         $publishedWeeks = $branchIds->isNotEmpty()
             ? ScheduleWeek::with('branch')
@@ -49,13 +53,25 @@ class EmployeeDashboardController extends Controller
 
         $activeClockIn = $user->activeClockIn();
 
+        // Priority A: Active or near-start shift (within 60m of start, has not ended)
         $todayShift = Shift::with('branch')
             ->where('user_id', $user->id)
-            ->whereDate('work_date', $today)
             ->whereHas('scheduleWeek', fn ($q) => $q->where('is_published', true))
+            ->where('starts_at', '<=', $maxEarlyStartUtcString)
+            ->where('ends_at', '>=', $nowUtcString)
+            ->orderBy('starts_at')
             ->first();
 
-        $userBranches = $user->branches()->orderBy('name')->get();
+        // Priority B: Earliest remaining shift scheduled for current local date that has not ended
+        if (! $todayShift) {
+            $todayShift = Shift::with('branch')
+                ->where('user_id', $user->id)
+                ->whereHas('scheduleWeek', fn ($q) => $q->where('is_published', true))
+                ->whereDate('work_date', $today)
+                ->where('ends_at', '>=', $nowUtcString)
+                ->orderBy('starts_at')
+                ->first();
+        }
 
         return view('employee.dashboard', [
             'upcomingShifts' => $upcomingShifts,
