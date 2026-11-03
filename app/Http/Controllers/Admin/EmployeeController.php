@@ -142,6 +142,7 @@ class EmployeeController extends Controller
 
         $totalApprovedMinutes = $employee->timesheetEntries()
             ->where('status', \App\Enums\TimesheetStatus::Approved)
+            ->whereNotNull('ends_at')
             ->sum('total_minutes');
 
         $totalLateCount = $employee->timesheetEntries()

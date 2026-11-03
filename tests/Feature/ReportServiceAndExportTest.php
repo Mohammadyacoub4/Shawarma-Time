@@ -344,4 +344,78 @@ class ReportServiceAndExportTest extends TestCase
         $xlsxResponse->assertOk();
         $this->assertTrue(str_contains($xlsxResponse->headers->get('content-disposition'), '.xlsx'));
     }
+
+    public function test_admin_records_are_scoped_out_of_reports_and_cannot_affect_employee_or_branch_totals(): void
+    {
+        // 1. Employee approved entry: 120 mins
+        TimesheetEntry::create([
+            'user_id' => $this->employee1->id,
+            'branch_id' => $this->vancouver->id,
+            'work_date' => now()->toDateString(),
+            'starts_at' => now()->subHours(4),
+            'ends_at' => now()->subHours(2),
+            'total_minutes' => 120,
+            'status' => TimesheetStatus::Approved,
+        ]);
+
+        // 2. Admin record (e.g. manually injected or legacy): 480 mins
+        TimesheetEntry::create([
+            'user_id' => $this->admin->id,
+            'branch_id' => $this->vancouver->id,
+            'work_date' => now()->toDateString(),
+            'starts_at' => now()->subHours(8),
+            'ends_at' => now(),
+            'total_minutes' => 480,
+            'status' => TimesheetStatus::Approved,
+        ]);
+
+        $report = $this->reportService->build([], true);
+
+        // Must strictly only count the employee (120 min), ignoring admin record (480 min)
+        $this->assertSame(120, $report['approved_combined_minutes']);
+        $this->assertSame(120, $report['total_working_minutes']);
+        $this->assertSame(1, $report['attendance_count']);
+        $this->assertSame(120, $report['by_branch'][$this->vancouver->id]['approved_minutes']);
+
+        // Admin entry must not appear in report entries collection
+        $this->assertCount(1, $report['entries']);
+        $this->assertSame($this->employee1->id, $report['entries']->first()->user_id);
+    }
+
+    public function test_open_approved_records_with_null_ends_at_are_excluded_from_approved_totals_and_excel(): void
+    {
+        // Create an inconsistent record: status = approved, but ends_at = null and total_minutes = 90
+        $inconsistentEntry = TimesheetEntry::create([
+            'user_id' => $this->employee1->id,
+            'branch_id' => $this->vancouver->id,
+            'work_date' => now()->toDateString(),
+            'starts_at' => now()->subHours(2),
+            'ends_at' => null,
+            'total_minutes' => 90,
+            'status' => TimesheetStatus::Approved,
+        ]);
+
+        $report = $this->reportService->build([], true);
+
+        // Incomplete open record must not contribute to approved minutes
+        $this->assertSame(0, $report['approved_combined_minutes']);
+        $this->assertSame(0, $report['total_working_minutes']);
+        $this->assertSame(0, $report['by_branch'][$this->vancouver->id]['approved_minutes']);
+        $this->assertSame(1, $report['missing_checkout_count']);
+
+        // Excel export must map approved hours as '0:00' and summary total as '0:00'
+        $export = new TimesheetReportExport($report, $this->reportService->filteredEntriesQuery([]));
+        $rows = $export->array();
+
+        // Find the data row for this entry
+        $dataRow = collect($rows)->first(fn ($r) => is_array($r) && ($r[0] ?? '') === $this->employee1->name);
+        $this->assertNotNull($dataRow);
+        // Column index 6 is Approved Hours
+        $this->assertSame('0:00', $dataRow[6]);
+
+        // Summary Total Approved Hours must be 0:00
+        $summaryApprovedRow = collect($rows)->first(fn ($r) => is_array($r) && ($r[0] ?? '') === 'Total Approved Hours');
+        $this->assertNotNull($summaryApprovedRow);
+        $this->assertSame('0:00', $summaryApprovedRow[1]);
+    }
 }

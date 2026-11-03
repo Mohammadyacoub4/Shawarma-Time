@@ -171,7 +171,7 @@ class TimesheetReportExport implements FromGenerator, WithHeadings
      */
     private function mapRow(TimesheetEntry $row): array
     {
-        $isApproved = $row->status === TimesheetStatus::Approved;
+        $isApproved = $row->status === TimesheetStatus::Approved && $row->ends_at !== null;
         $approvedHours = $isApproved ? $this->calculator->formatHours($row->total_minutes) : '0:00';
         $tz = BranchTime::timezoneFor($row->branch);
 

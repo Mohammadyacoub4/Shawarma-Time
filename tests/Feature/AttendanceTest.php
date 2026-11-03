@@ -86,6 +86,29 @@ class AttendanceTest extends TestCase
         $this->assertSame(1, TimesheetEntry::where('user_id', $employee->id)->count());
     }
 
+    public function test_service_level_duplicate_concurrent_active_clock_in_is_rejected_including_null_shift_id(): void
+    {
+        $branch2 = Branch::factory()->create();
+        $employee = $this->makeEmployee([$this->branch->id, $branch2->id]);
+        $service = app(\App\Services\TimesheetService::class);
+
+        // First active clock-in with shift_id = null
+        $entry1 = $service->clockIn($employee, $this->branch->id);
+        $this->assertNull($entry1->shift_id);
+        $this->assertNull($entry1->ends_at);
+        $this->assertSame(TimesheetStatus::ClockedIn, $entry1->status);
+
+        // Attempt second clock-in at another branch while first is active
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('You are already clocked in. Please clock out first.');
+
+        try {
+            $service->clockIn($employee, $branch2->id);
+        } finally {
+            $this->assertSame(1, TimesheetEntry::where('user_id', $employee->id)->count());
+        }
+    }
+
     public function test_employee_cannot_clock_in_to_unassigned_branch(): void
     {
         $employee = $this->makeEmployee([]); // no branches assigned

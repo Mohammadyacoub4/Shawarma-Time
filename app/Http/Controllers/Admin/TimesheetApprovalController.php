@@ -18,7 +18,9 @@ class TimesheetApprovalController extends Controller
 {
     public function index(Request $request): View
     {
-        $query = TimesheetEntry::with(['user', 'branch'])->latest('submitted_at');
+        $query = TimesheetEntry::with(['user', 'branch'])
+            ->whereHas('user', fn ($q) => $q->where('role', \App\Enums\UserRole::Employee))
+            ->latest('submitted_at');
 
         if ($request->filled('status')) {
             $query->where('status', $request->string('status'));

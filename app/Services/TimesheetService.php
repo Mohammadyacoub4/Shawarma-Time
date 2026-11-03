@@ -148,8 +148,8 @@ class TimesheetService
             }
 
             $now = now();
-            if ($now->lessThanOrEqualTo($entry->starts_at)) {
-                $now = $entry->starts_at->copy()->addMinute();
+            if ($now->lessThan($entry->starts_at)) {
+                $now = $entry->starts_at->copy();
             }
 
             // STEP 3: Validate completed interval against any other entries
@@ -169,10 +169,15 @@ class TimesheetService
                 $employeeNotes = $employeeNotes ? "{$employeeNotes} | Out: {$notes}" : $notes;
             }
 
+            // Prevent zero-minute completed entries from entering approval workflow without silently rounding up
+            $status = $totalMinutes > 0 ? TimesheetStatus::PendingApproval : TimesheetStatus::Rejected;
+            $rejectionReason = $totalMinutes > 0 ? null : 'Zero-minute attendance session / فترة دوام مدتها صفر دقيقة.';
+
             $entry->update([
                 'ends_at' => $now,
                 'total_minutes' => $totalMinutes,
-                'status' => TimesheetStatus::PendingApproval,
+                'status' => $status,
+                'rejection_reason' => $rejectionReason,
                 'employee_notes' => $employeeNotes,
             ]);
 
@@ -191,6 +196,10 @@ class TimesheetService
         return DB::transaction(function () use ($employee, $data, $existing) {
             // STEP 2: Always acquire User row lock first, then TimesheetEntry lock
             $lockedUser = User::where('id', $employee->id)->lockForUpdate()->firstOrFail();
+
+            if (! $lockedUser->isEmployee()) {
+                throw new InvalidArgumentException('Only employees can submit timesheets.');
+            }
 
             $entry = null;
             $old = null;
@@ -388,6 +397,10 @@ class TimesheetService
             // Re-read and validate current state after locking
             if ($lockedEntry->status !== TimesheetStatus::PendingApproval) {
                 throw new InvalidArgumentException('Only pending entries can be approved.');
+            }
+
+            if ($lockedEntry->ends_at === null || $lockedEntry->total_minutes <= 0) {
+                throw new InvalidArgumentException('Cannot approve a timesheet entry without a valid duration (total minutes must be greater than zero).');
             }
 
             // Verify before approving that this entry doesn't overlap with another approved entry

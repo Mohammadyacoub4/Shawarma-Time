@@ -47,18 +47,22 @@
                         <td class="py-3 px-4 text-dark-200 font-mono text-xs">
                             @if($entry->ends_at)
                                 {{ $entry->ends_at->timezone(App\Support\BranchTime::timezoneFor($entry->branch))->format('g:i A') }}
-                            @else
+                            @elseif($entry->status === \App\Enums\TimesheetStatus::ClockedIn)
                                 <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 animate-pulse">
                                     <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
                                     {{ app()->getLocale() === 'ar' ? 'بالعمل الآن' : 'Working Now' }}
                                 </span>
+                            @else
+                                <span class="text-dark-400">—</span>
                             @endif
                         </td>
                         <td class="py-3 px-4 font-mono font-medium text-white">
                             @if($entry->ends_at)
                                 {{ sprintf('%d:%02d', intdiv($entry->total_minutes, 60), $entry->total_minutes % 60) }}
-                            @else
+                            @elseif($entry->status === \App\Enums\TimesheetStatus::ClockedIn)
                                 <span class="text-dark-400 text-xs italic">{{ app()->getLocale() === 'ar' ? 'جارٍ احتسابه...' : 'In progress...' }}</span>
+                            @else
+                                <span class="text-dark-400">—</span>
                             @endif
                         </td>
                         <td class="py-3 px-4">

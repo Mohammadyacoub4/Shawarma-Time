@@ -36,21 +36,22 @@ class AdminDashboardController extends Controller
 
         // 1. Employees currently clocked in
         $currentlyClockedIn = TimesheetEntry::with(['user', 'branch'])
-            ->where(function ($q) {
-                $q->whereNull('ends_at')
-                  ->orWhere('status', TimesheetStatus::ClockedIn);
-            })
+            ->whereHas('user', fn ($q) => $q->where('role', UserRole::Employee))
+            ->whereNull('ends_at')
+            ->where('status', TimesheetStatus::ClockedIn)
             ->latest('starts_at')
             ->get();
 
         // 2. Attendance activity for the selected date
         $attendanceActivity = TimesheetEntry::with(['user', 'branch'])
+            ->whereHas('user', fn ($q) => $q->where('role', UserRole::Employee))
             ->whereDate('work_date', $selectedDate)
             ->latest('starts_at')
             ->get();
 
         // 3. Late arrivals for selected date
         $lateArrivals = TimesheetEntry::with(['user', 'branch'])
+            ->whereHas('user', fn ($q) => $q->where('role', UserRole::Employee))
             ->whereDate('work_date', $selectedDate)
             ->where('is_late', true)
             ->get();
@@ -147,6 +148,8 @@ class AdminDashboardController extends Controller
         ])->orderBy('name')->get();
 
         $approvedTotals = TimesheetEntry::where('status', TimesheetStatus::Approved)
+            ->whereNotNull('ends_at')
+            ->whereHas('user', fn ($q) => $q->where('role', UserRole::Employee))
             ->whereBetween('work_date', [$weekStart, $weekEnd])
             ->groupBy('branch_id')
             ->selectRaw('branch_id, SUM(total_minutes) as total_minutes')

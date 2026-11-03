@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Enums\TimesheetStatus;
+use App\Enums\UserRole;
 use App\Models\Branch;
 use App\Models\Shift;
 use App\Models\TimesheetEntry;
@@ -45,7 +46,7 @@ class ReportService
         $metrics = $this->filteredEntriesQuery($filters)
             ->selectRaw("
                 COUNT(*) as attendance_count,
-                COALESCE(SUM(CASE WHEN status = 'approved' THEN total_minutes ELSE 0 END), 0) as approved_combined_minutes,
+                COALESCE(SUM(CASE WHEN status = 'approved' AND ends_at IS NOT NULL THEN total_minutes ELSE 0 END), 0) as approved_combined_minutes,
                 COALESCE(SUM(CASE WHEN status = 'pending_approval' THEN total_minutes ELSE 0 END), 0) as pending_minutes,
                 COALESCE(SUM(CASE WHEN status = 'rejected' THEN total_minutes ELSE 0 END), 0) as rejected_minutes,
                 COALESCE(SUM(CASE WHEN is_late = 1 THEN 1 ELSE 0 END), 0) as late_count,
@@ -58,7 +59,7 @@ class ReportService
         $branchMetrics = $this->filteredEntriesQuery($filters)
             ->selectRaw("
                 branch_id,
-                COALESCE(SUM(CASE WHEN status = 'approved' THEN total_minutes ELSE 0 END), 0) as approved_minutes,
+                COALESCE(SUM(CASE WHEN status = 'approved' AND ends_at IS NOT NULL THEN total_minutes ELSE 0 END), 0) as approved_minutes,
                 COALESCE(SUM(CASE WHEN status = 'pending_approval' THEN total_minutes ELSE 0 END), 0) as pending_minutes,
                 COALESCE(SUM(CASE WHEN status = 'rejected' THEN total_minutes ELSE 0 END), 0) as rejected_minutes
             ")
@@ -124,6 +125,7 @@ class ReportService
     public function filteredEntriesQuery(array $filters): Builder
     {
         return TimesheetEntry::query()
+            ->whereHas('user', fn (Builder $q) => $q->where('role', UserRole::Employee))
             ->when($filters['branch_id'] ?? null, fn (Builder $q, $id) => $q->where('branch_id', $id))
             ->when($filters['user_id'] ?? null, fn (Builder $q, $id) => $q->where('user_id', $id))
             ->when($filters['status'] ?? null, fn (Builder $q, $status) => $q->where('status', $status))
@@ -139,6 +141,7 @@ class ReportService
     public function filteredShiftsQuery(array $filters): Builder
     {
         return Shift::query()
+            ->whereHas('user', fn (Builder $q) => $q->where('role', UserRole::Employee))
             ->when($filters['branch_id'] ?? null, fn (Builder $q, $id) => $q->where('branch_id', $id))
             ->when($filters['user_id'] ?? null, fn (Builder $q, $id) => $q->where('user_id', $id))
             ->when($filters['from'] ?? null, fn (Builder $q, $from) => $q->whereDate('work_date', '>=', $from))
@@ -165,6 +168,7 @@ class ReportService
         $row = TimesheetEntry::query()
             ->where('user_id', $userId)
             ->where('status', TimesheetStatus::Approved)
+            ->whereNotNull('ends_at')
             ->where('work_date', '>=', $overallStart)
             ->where('work_date', '<', $overallEndExclusive)
             ->selectRaw("

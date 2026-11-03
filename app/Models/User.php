@@ -95,10 +95,8 @@ class User extends Authenticatable
     public function activeClockIn(): ?TimesheetEntry
     {
         return $this->timesheetEntries()
-            ->where(function ($q) {
-                $q->whereNull('ends_at')
-                  ->orWhere('status', \App\Enums\TimesheetStatus::ClockedIn);
-            })
+            ->whereNull('ends_at')
+            ->where('status', \App\Enums\TimesheetStatus::ClockedIn)
             ->latest('starts_at')
             ->first();
     }

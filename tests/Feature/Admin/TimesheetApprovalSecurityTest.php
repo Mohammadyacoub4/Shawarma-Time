@@ -7,9 +7,11 @@ use App\Models\Branch;
 use App\Models\TimesheetAuditLog;
 use App\Models\TimesheetEntry;
 use App\Models\User;
+use App\Services\TimesheetService;
 use Carbon\Carbon;
 use Database\Seeders\BranchSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use InvalidArgumentException;
 use Tests\TestCase;
 
 class TimesheetApprovalSecurityTest extends TestCase
@@ -219,6 +221,127 @@ class TimesheetApprovalSecurityTest extends TestCase
         $timesheet->refresh();
         $this->assertSame(TimesheetStatus::Approved, $timesheet->status);
         $this->assertSame(315, (int) $timesheet->total_minutes);
+    }
+
+    public function test_admin_approval_rejects_incomplete_entry_with_null_ends_at(): void
+    {
+        $service = app(TimesheetService::class);
+
+        $incompleteEntry = TimesheetEntry::factory()->create([
+            'user_id' => $this->employee->id,
+            'branch_id' => $this->branch->id,
+            'starts_at' => now()->subHours(2),
+            'ends_at' => null,
+            'total_minutes' => 0,
+            'status' => TimesheetStatus::PendingApproval,
+        ]);
+
+        // 1. Service level approval rejection
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('Cannot approve a timesheet entry without a valid duration');
+        $service->approve($incompleteEntry, $this->admin);
+
+        // Status must remain PendingApproval
+        $this->assertSame(TimesheetStatus::PendingApproval, $incompleteEntry->fresh()->status);
+    }
+
+    public function test_admin_approval_endpoint_redirects_with_error_on_incomplete_entry(): void
+    {
+        $incompleteEntry = TimesheetEntry::factory()->create([
+            'user_id' => $this->employee->id,
+            'branch_id' => $this->branch->id,
+            'starts_at' => now()->subHours(2),
+            'ends_at' => null,
+            'total_minutes' => 0,
+            'status' => TimesheetStatus::PendingApproval,
+        ]);
+
+        $response = $this->actingAs($this->admin)->post(route('admin.timesheets.approve', $incompleteEntry));
+        $response->assertRedirect();
+        $response->assertSessionHasErrors('timesheet');
+
+        $this->assertSame(TimesheetStatus::PendingApproval, $incompleteEntry->fresh()->status);
+    }
+
+    public function test_admin_approval_rejects_entry_with_zero_total_minutes(): void
+    {
+        $service = app(TimesheetService::class);
+
+        $zeroEntry = TimesheetEntry::factory()->create([
+            'user_id' => $this->employee->id,
+            'branch_id' => $this->branch->id,
+            'starts_at' => now()->subHours(1),
+            'ends_at' => now()->subHours(1)->addSeconds(15),
+            'total_minutes' => 0,
+            'status' => TimesheetStatus::PendingApproval,
+        ]);
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('Cannot approve a timesheet entry without a valid duration');
+        $service->approve($zeroEntry, $this->admin);
+
+        $this->assertSame(TimesheetStatus::PendingApproval, $zeroEntry->fresh()->status);
+    }
+
+    public function test_timesheet_service_submit_rejects_admin_user_at_service_level(): void
+    {
+        $service = app(TimesheetService::class);
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('Only employees can submit timesheets.');
+
+        $service->submit($this->admin, [
+            'branch_id' => $this->branch->id,
+            'work_date' => now()->toDateString(),
+            'start_time' => '09:00',
+            'end_time' => '17:00',
+        ]);
+    }
+
+    public function test_timesheet_table_displays_working_now_only_when_clocked_in_and_ends_at_is_null(): void
+    {
+        // Active clock-in: ends_at = null, status = ClockedIn -> must show 'Working Now'
+        $activeEntry = TimesheetEntry::factory()->create([
+            'user_id' => $this->employee->id,
+            'branch_id' => $this->branch->id,
+            'ends_at' => null,
+            'status' => TimesheetStatus::ClockedIn,
+        ]);
+
+        // Inconsistent entry: ends_at = null, status = Approved -> must NOT show 'Working Now', must show '—'
+        $inconsistentEntry = TimesheetEntry::factory()->create([
+            'user_id' => $this->employee->id,
+            'branch_id' => $this->branch->id,
+            'ends_at' => null,
+            'status' => TimesheetStatus::Approved,
+        ]);
+
+        $viewActive = view('partials.timesheet-table', ['entries' => collect([$activeEntry])])->render();
+        $this->assertTrue(str_contains($viewActive, 'Working Now') || str_contains($viewActive, 'بالعمل الآن'));
+
+        $viewInconsistent = view('partials.timesheet-table', ['entries' => collect([$inconsistentEntry])])->render();
+        $this->assertFalse(str_contains($viewInconsistent, 'Working Now'));
+        $this->assertFalse(str_contains($viewInconsistent, 'بالعمل الآن'));
+        $this->assertTrue(str_contains($viewInconsistent, '—'));
+    }
+
+    public function test_zero_minute_clock_out_is_marked_rejected_and_prevented_from_entering_pending_approval(): void
+    {
+        $service = app(TimesheetService::class);
+
+        Carbon::setTestNow('2026-11-02 10:00:00');
+        $entry = $service->clockIn($this->employee, $this->branch->id);
+
+        // Clock out only 15 seconds later (0 minutes elapsed)
+        Carbon::setTestNow('2026-11-02 10:00:15');
+        $service->clockOut($this->employee);
+
+        $entry->refresh();
+        $this->assertSame(0, (int) $entry->total_minutes);
+        // Must be marked Rejected, NOT PendingApproval, preventing it from entering approval workflow
+        $this->assertSame(TimesheetStatus::Rejected, $entry->status);
+        $this->assertNotNull($entry->rejection_reason);
+        $this->assertFalse($this->employee->fresh()->isClockedIn());
     }
 }
 
