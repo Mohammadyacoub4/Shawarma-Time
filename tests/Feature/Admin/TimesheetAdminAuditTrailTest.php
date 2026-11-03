@@ -25,6 +25,10 @@ class TimesheetAdminAuditTrailTest extends TestCase
     {
         parent::setUp();
 
+        if (config('database.default') === 'mysql' && config('database.connections.mysql.database') !== 'shawarma_time_testing') {
+            throw new \RuntimeException('SAFETY BLOCK: Connected to non-testing database: ' . config('database.connections.mysql.database'));
+        }
+
         $this->seed(BranchSeeder::class);
         $this->branch = Branch::where('slug', 'vancouver')->firstOrFail();
 
@@ -227,5 +231,65 @@ class TimesheetAdminAuditTrailTest extends TestCase
         $response->assertOk();
         $response->assertSee('admin_edited');
         $response->assertSee('Historical edit log note');
+    }
+
+    public function test_admin_opening_active_clocked_in_timesheet_with_null_ends_at_succeeds(): void
+    {
+        $service = app(TimesheetService::class);
+        $entry = $service->clockIn($this->employee, $this->branch->id, 'Starting my morning shift');
+
+        $this->assertNull($entry->ends_at);
+        $this->assertEquals(TimesheetStatus::ClockedIn, $entry->status);
+
+        $response = $this->actingAs($this->adminA)->get(route('admin.timesheets.show', $entry));
+
+        $response->assertOk();
+        $response->assertSee($this->employee->name);
+        $response->assertSee($this->branch->name);
+
+        $expectedStartTime = $entry->starts_at->timezone(\App\Support\BranchTime::timezoneFor($entry->branch))->format('g:i A');
+        $response->assertSee($expectedStartTime);
+        $response->assertSee('Not clocked out yet');
+        $response->assertSee('Currently Clocked In');
+        $response->assertDontSee('name="end_time"', false);
+    }
+
+    public function test_admin_viewing_completed_timesheet_shows_editing_form_and_end_time(): void
+    {
+        $service = app(TimesheetService::class);
+        $entry = $service->submit($this->employee, [
+            'branch_id' => $this->branch->id,
+            'work_date' => '2026-05-10',
+            'start_time' => '09:00',
+            'end_time' => '17:00',
+        ]);
+
+        $this->assertNotNull($entry->ends_at);
+
+        $response = $this->actingAs($this->adminA)->get(route('admin.timesheets.show', $entry));
+
+        $response->assertOk();
+        $response->assertSee('name="start_time"', false);
+        $response->assertSee($entry->starts_at->timezone(\App\Support\BranchTime::timezoneFor($entry->branch))->format('H:i'));
+        $response->assertSee('name="end_time"', false);
+        $response->assertSee($entry->ends_at->timezone(\App\Support\BranchTime::timezoneFor($entry->branch))->format('H:i'));
+        $response->assertSee('Save Changes');
+        $response->assertDontSee('Not clocked out yet');
+    }
+
+    public function test_admin_cannot_update_timesheet_without_end_time(): void
+    {
+        $service = app(TimesheetService::class);
+        $entry = $service->clockIn($this->employee, $this->branch->id, 'Active shift');
+
+        $response = $this->actingAs($this->adminA)->put(route('admin.timesheets.update', $entry), [
+            'branch_id' => $this->branch->id,
+            'work_date' => $entry->work_date->toDateString(),
+            'start_time' => '09:00',
+        ]);
+
+        $response->assertSessionHasErrors('end_time');
+        $this->assertNull($entry->fresh()->ends_at);
+        $this->assertEquals(TimesheetStatus::ClockedIn, $entry->fresh()->status);
     }
 }

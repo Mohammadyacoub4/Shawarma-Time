@@ -188,11 +188,11 @@ class ShawarmaApplicationTest extends TestCase
         $this->assertSame($this->carbonMonday(), $weekStart->dayOfWeek);
     }
 
-    public function test_branch_default_timezone_is_canada_pacific(): void
+    public function test_branch_default_timezone_is_fixed_utc_minus_seven(): void
     {
-        $this->assertSame('Canada/Pacific', BranchTime::DEFAULT_TIMEZONE);
-        $this->assertSame('Canada/Pacific', $this->richmond->timezone);
-        $this->assertSame('Canada/Pacific', $this->vancouver->timezone);
+        $this->assertSame('Etc/GMT+7', BranchTime::DEFAULT_TIMEZONE);
+        $this->assertSame('Etc/GMT+7', $this->richmond->timezone);
+        $this->assertSame('Etc/GMT+7', $this->vancouver->timezone);
     }
 
     public function test_admin_can_view_employee_reset_password_page(): void

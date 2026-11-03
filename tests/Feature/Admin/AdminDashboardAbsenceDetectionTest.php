@@ -35,12 +35,12 @@ class AdminDashboardAbsenceDetectionTest extends TestCase
 
         $this->branchA = Branch::factory()->create([
             'name' => 'Downtown Branch',
-            'timezone' => 'Canada/Pacific',
+            'timezone' => 'Etc/GMT+7',
             'grace_minutes' => 15,
         ]);
         $this->branchB = Branch::factory()->create([
             'name' => 'Uptown Branch',
-            'timezone' => 'Canada/Pacific',
+            'timezone' => 'Etc/GMT+7',
             'grace_minutes' => 15,
         ]);
 

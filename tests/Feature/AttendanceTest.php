@@ -653,4 +653,77 @@ class AttendanceTest extends TestCase
 
         Carbon::setTestNow();
     }
+
+    public function test_clock_in_does_not_associate_unpublished_draft_shift(): void
+    {
+        $employee = $this->makeEmployee([$this->branch->id]);
+        $today = '2026-11-02';
+        $tz = BranchTime::timezoneFor($this->branch);
+
+        $shiftStart = Carbon::parse("{$today} 09:00:00", $tz);
+        $shiftEnd = Carbon::parse("{$today} 17:00:00", $tz);
+
+        // Create an UNPUBLISHED draft schedule week
+        $draftWeek = ScheduleWeek::factory()->for($this->branch)->create([
+            'week_start' => BranchTime::weekStart($shiftStart, $this->branch)->toDateString(),
+            'is_published' => false,
+        ]);
+
+        $draftShift = Shift::create([
+            'schedule_week_id' => $draftWeek->id,
+            'user_id' => $employee->id,
+            'branch_id' => $this->branch->id,
+            'work_date' => $today,
+            'starts_at' => $shiftStart->copy()->utc(),
+            'ends_at' => $shiftEnd->copy()->utc(),
+            'grace_minutes' => 15,
+        ]);
+
+        // Clock in at 09:00 - shift belongs to an unpublished draft week, so it must not be linked
+        Carbon::setTestNow($shiftStart->copy()->utc());
+        $service = app(\App\Services\TimesheetService::class);
+        $entry = $service->clockIn($employee, $this->branch->id);
+
+        $this->assertNull($entry->shift_id);
+        $this->assertSame($today, $entry->work_date->toDateString());
+        $this->assertEquals(TimesheetStatus::ClockedIn, $entry->status);
+
+        Carbon::setTestNow();
+    }
+
+    public function test_clock_in_associates_published_shift(): void
+    {
+        $employee = $this->makeEmployee([$this->branch->id]);
+        $today = '2026-11-02';
+        $tz = BranchTime::timezoneFor($this->branch);
+
+        $shiftStart = Carbon::parse("{$today} 09:00:00", $tz);
+        $shiftEnd = Carbon::parse("{$today} 17:00:00", $tz);
+
+        // Create a PUBLISHED schedule week
+        $publishedWeek = ScheduleWeek::factory()->for($this->branch)->published()->create([
+            'week_start' => BranchTime::weekStart($shiftStart, $this->branch)->toDateString(),
+        ]);
+
+        $publishedShift = Shift::create([
+            'schedule_week_id' => $publishedWeek->id,
+            'user_id' => $employee->id,
+            'branch_id' => $this->branch->id,
+            'work_date' => $today,
+            'starts_at' => $shiftStart->copy()->utc(),
+            'ends_at' => $shiftEnd->copy()->utc(),
+            'grace_minutes' => 15,
+        ]);
+
+        // Clock in at 09:00 - shift belongs to a published week, so it must be linked
+        Carbon::setTestNow($shiftStart->copy()->utc());
+        $service = app(\App\Services\TimesheetService::class);
+        $entry = $service->clockIn($employee, $this->branch->id);
+
+        $this->assertSame($publishedShift->id, $entry->shift_id);
+        $this->assertSame($today, $entry->work_date->toDateString());
+        $this->assertEquals(TimesheetStatus::ClockedIn, $entry->status);
+
+        Carbon::setTestNow();
+    }
 }

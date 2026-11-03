@@ -293,11 +293,11 @@ class TimesheetManualEntryValidationTest extends TestCase
     public function test_future_date_validation_uses_branch_local_date_across_utc_boundary(): void
     {
         // 2026-11-02 03:00:00 UTC
-        // Vancouver (Canada/Pacific = UTC-8): 2026-11-01 19:00:00 (Nov 1)
-        // UTC date is 2026-11-02, but Vancouver local date is still 2026-11-01
+        // Fixed business timezone (Etc/GMT+7 = UTC-07:00): 2026-11-01 20:00:00 (Nov 1)
+        // UTC date is 2026-11-02, but branch local date is still 2026-11-01
         Carbon::setTestNow('2026-11-02 03:00:00');
 
-        // Submitting 2026-11-02 for Vancouver is FUTURE because local date is 2026-11-01
+        // Submitting 2026-11-02 is FUTURE because local date is 2026-11-01
         $responseFuture = $this->actingAs($this->employee)->post(route('employee.timesheets.store'), [
             'branch_id' => $this->vancouver->id,
             'work_date' => '2026-11-02',

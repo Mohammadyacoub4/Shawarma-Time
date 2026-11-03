@@ -404,4 +404,35 @@ class EmployeeDeactivationSecurityTest extends TestCase
             DB::statement('DROP TRIGGER IF EXISTS fail_session_delete;');
         }
     }
+
+    public function test_administrator_cannot_be_deactivated_via_toggle_status_route(): void
+    {
+        $targetAdmin = User::factory()->admin()->create([
+            'is_active' => true,
+        ]);
+
+        $response = $this->actingAs($this->admin)->post(route('admin.employees.toggle-status', $targetAdmin));
+
+        // EmployeeController::toggleStatus enforces abort_unless($employee->isEmployee(), 404)
+        $response->assertNotFound();
+        $this->assertTrue((bool) $targetAdmin->fresh()->is_active);
+    }
+
+    public function test_employee_cannot_access_toggle_status_endpoint_to_deactivate_administrator(): void
+    {
+        $targetAdmin = User::factory()->admin()->create([
+            'is_active' => true,
+        ]);
+        $employee = User::factory()->create([
+            'role' => \App\Enums\UserRole::Employee,
+            'is_active' => true,
+        ]);
+        $employee->branches()->attach($this->branch->id);
+
+        $response = $this->actingAs($employee)->post(route('admin.employees.toggle-status', $targetAdmin));
+
+        // EnsureUserIsAdmin middleware blocks non-admin requests with 403
+        $response->assertForbidden();
+        $this->assertTrue((bool) $targetAdmin->fresh()->is_active);
+    }
 }

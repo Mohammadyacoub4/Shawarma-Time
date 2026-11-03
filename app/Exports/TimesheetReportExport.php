@@ -5,6 +5,7 @@ namespace App\Exports;
 use App\Enums\TimesheetStatus;
 use App\Models\TimesheetEntry;
 use App\Services\WorkPeriodCalculator;
+use App\Support\BranchTime;
 use Generator;
 use Illuminate\Database\Eloquent\Builder;
 use Maatwebsite\Excel\Concerns\FromGenerator;
@@ -172,19 +173,20 @@ class TimesheetReportExport implements FromGenerator, WithHeadings
     {
         $isApproved = $row->status === TimesheetStatus::Approved;
         $approvedHours = $isApproved ? $this->calculator->formatHours($row->total_minutes) : '0:00';
+        $tz = BranchTime::timezoneFor($row->branch);
 
         return [
             $row->user->name,
             $row->branch->name,
             $row->work_date->toDateString(),
-            $row->starts_at?->toDateTimeString() ?? '-',
-            $row->ends_at?->toDateTimeString() ?? 'Clocked In (Active)',
+            $row->starts_at ? $row->starts_at->timezone($tz)->toDateTimeString() : '-',
+            $row->ends_at ? $row->ends_at->timezone($tz)->toDateTimeString() : 'Clocked In (Active)',
             $this->calculator->formatHours($row->total_minutes),
             $approvedHours,
             $row->status instanceof TimesheetStatus ? $row->status->label() : (string) $row->status,
             $row->is_late ? 'Yes' : 'No',
             $row->late_minutes ?? 0,
-            optional($row->submitted_at)?->toDateTimeString(),
+            $row->submitted_at ? $row->submitted_at->timezone($tz)->toDateTimeString() : null,
         ];
     }
 }

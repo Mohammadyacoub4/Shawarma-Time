@@ -130,4 +130,36 @@ class ProfileTest extends TestCase
         $response->assertForbidden();
         $this->assertNotNull($employee->fresh());
     }
+
+    public function test_last_remaining_admin_cannot_be_deleted_via_model_directly(): void
+    {
+        $onlyAdmin = User::factory()->admin()->create();
+
+        $this->assertSame(1, User::where('role', \App\Enums\UserRole::Admin)->count());
+
+        $this->expectException(\DomainException::class);
+        $this->expectExceptionMessage('Cannot delete the last remaining administrator account.');
+
+        try {
+            $onlyAdmin->delete();
+        } finally {
+            $this->assertNotNull($onlyAdmin->fresh());
+            $this->assertDatabaseHas('users', ['id' => $onlyAdmin->id]);
+            $this->assertSame(1, User::where('role', \App\Enums\UserRole::Admin)->count());
+        }
+    }
+
+    public function test_admin_can_be_deleted_via_model_when_multiple_admins_exist(): void
+    {
+        $admin1 = User::factory()->admin()->create();
+        $admin2 = User::factory()->admin()->create();
+
+        $this->assertSame(2, User::where('role', \App\Enums\UserRole::Admin)->count());
+
+        $admin1->delete();
+
+        $this->assertNull($admin1->fresh());
+        $this->assertNotNull($admin2->fresh());
+        $this->assertSame(1, User::where('role', \App\Enums\UserRole::Admin)->count());
+    }
 }

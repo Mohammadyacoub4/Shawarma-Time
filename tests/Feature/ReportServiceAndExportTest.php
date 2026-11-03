@@ -277,6 +277,8 @@ class ReportServiceAndExportTest extends TestCase
 
         $this->assertNotNull($rowApproved);
         $this->assertEquals($this->employee1->name, $rowApproved[0]);
+        $this->assertEquals('2026-05-10 09:00:00', $rowApproved[3]); // Starts at converted to Etc/GMT+7
+        $this->assertEquals('2026-05-10 13:00:00', $rowApproved[4]); // Ends at converted to Etc/GMT+7
         $this->assertEquals('4:00', $rowApproved[5]); // Recorded Duration
         $this->assertEquals('4:00', $rowApproved[6]); // Approved Hours
 

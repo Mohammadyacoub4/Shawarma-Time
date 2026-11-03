@@ -67,6 +67,7 @@ class TimesheetService
 
             $shift = Shift::where('user_id', $lockedUser->id)
                 ->where('branch_id', $branch->id)
+                ->whereHas('scheduleWeek', fn ($q) => $q->where('is_published', true))
                 ->whereDoesntHave('timesheetEntries')
                 ->where('starts_at', '<=', $maxStartsAtString)
                 ->where('ends_at', '>=', $nowUtcString)

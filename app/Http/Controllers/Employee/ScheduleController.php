@@ -28,13 +28,14 @@ class ScheduleController extends Controller
         $branches = $userBranches;
 
         if (! $branch) {
+            $fallbackWeekStart = BranchTime::weekStart(null, null);
             return view('employee.schedules.index', [
                 'branches' => collect(),
                 'branch' => null,
-                'weekStart' => now()->startOfWeek()->toDateString(),
-                'weekEnd' => now()->endOfWeek()->toDateString(),
-                'prevWeek' => now()->subDays(7)->startOfWeek()->toDateString(),
-                'nextWeek' => now()->addDays(7)->startOfWeek()->toDateString(),
+                'weekStart' => $fallbackWeekStart->toDateString(),
+                'weekEnd' => BranchTime::weekEnd($fallbackWeekStart)->toDateString(),
+                'prevWeek' => $fallbackWeekStart->copy()->subDays(7)->toDateString(),
+                'nextWeek' => $fallbackWeekStart->copy()->addDays(7)->toDateString(),
                 'isCurrentWeek' => true,
                 'days' => collect(),
                 'shiftsByDay' => collect(),

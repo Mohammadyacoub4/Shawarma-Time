@@ -39,7 +39,7 @@ class EmployeeDashboardPerformanceAndTotalsTest extends TestCase
         $employee = User::factory()->employee()->create();
         $employee->branches()->sync([$this->vancouver->id]);
 
-        $reference = Carbon::parse('2026-11-04 12:00:00', 'Canada/Pacific'); // Wednesday
+        $reference = Carbon::parse('2026-11-04 12:00:00', 'Etc/GMT+7'); // Wednesday
         $totals = $this->reportService->employeeHourTotals($employee->id, $reference);
 
         $this->assertIsArray($totals);
@@ -53,7 +53,7 @@ class EmployeeDashboardPerformanceAndTotalsTest extends TestCase
         $employee = User::factory()->employee()->create();
         $employee->branches()->sync([$this->vancouver->id]);
 
-        $reference = Carbon::parse('2026-11-04 12:00:00', 'Canada/Pacific'); // Wednesday
+        $reference = Carbon::parse('2026-11-04 12:00:00', 'Etc/GMT+7'); // Wednesday
         $dateStr = '2026-11-04';
 
         // Pending
@@ -91,7 +91,7 @@ class EmployeeDashboardPerformanceAndTotalsTest extends TestCase
 
         // Week of Nov 2 to Nov 8, 2026:
         // Reference is Wednesday, Nov 4, 2026
-        $reference = Carbon::parse('2026-11-04 12:00:00', 'Canada/Pacific');
+        $reference = Carbon::parse('2026-11-04 12:00:00', 'Etc/GMT+7');
 
         // Entry 1: Today (Nov 4) -> 120 mins
         TimesheetEntry::factory()->for($employee)->for($this->vancouver)->create([
@@ -145,7 +145,7 @@ class EmployeeDashboardPerformanceAndTotalsTest extends TestCase
 
         // Week: Monday Oct 26, 2026 to Sunday Nov 1, 2026
         // Reference is Sunday, Nov 1, 2026 (Nov month has just started)
-        $reference = Carbon::parse('2026-11-01 15:00:00', 'Canada/Pacific');
+        $reference = Carbon::parse('2026-11-01 15:00:00', 'Etc/GMT+7');
 
         // Entry in October (same week, previous month)
         TimesheetEntry::factory()->for($employee)->for($this->vancouver)->create([
@@ -184,7 +184,7 @@ class EmployeeDashboardPerformanceAndTotalsTest extends TestCase
         $employee->branches()->sync([$this->vancouver->id]);
 
         // Scenario 1: Reference is last day of month: Saturday, Oct 31, 2026
-        $refOct31 = Carbon::parse('2026-10-31 16:00:00', 'Canada/Pacific');
+        $refOct31 = Carbon::parse('2026-10-31 16:00:00', 'Etc/GMT+7');
         $originalTimestamp = $refOct31->timestamp;
 
         // Entry on Oct 31 -> 110 mins
@@ -224,7 +224,7 @@ class EmployeeDashboardPerformanceAndTotalsTest extends TestCase
             'updated_at' => now(),
         ]);
 
-        $refOct1 = Carbon::parse('2026-10-01 09:00:00', 'Canada/Pacific');
+        $refOct1 = Carbon::parse('2026-10-01 09:00:00', 'Etc/GMT+7');
         $totalsOct1 = $this->reportService->employeeHourTotals($employee->id, $refOct1);
 
         $this->assertSame(480, $totalsOct1['daily_approved_minutes']);
@@ -237,7 +237,7 @@ class EmployeeDashboardPerformanceAndTotalsTest extends TestCase
         $employee = User::factory()->employee()->create();
         $employee->branches()->sync([$this->vancouver->id]);
 
-        $reference = Carbon::parse('2026-11-04 12:00:00', 'Canada/Pacific');
+        $reference = Carbon::parse('2026-11-04 12:00:00', 'Etc/GMT+7');
 
         DB::flushQueryLog();
         DB::enableQueryLog();
@@ -272,7 +272,7 @@ class EmployeeDashboardPerformanceAndTotalsTest extends TestCase
 
         ScheduleWeek::create([
             'branch_id' => $this->richmond->id,
-            'week_start' => now('Canada/Pacific')->startOfWeek()->toDateString(),
+            'week_start' => now('Etc/GMT+7')->startOfWeek()->toDateString(),
             'is_published' => true,
         ]);
 

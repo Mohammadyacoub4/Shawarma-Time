@@ -45,7 +45,13 @@
                     </div>
                     <div>
                         <p class="text-dark-400 text-xs mb-1">Hours Worked</p>
-                        <p class="font-mono font-bold text-white text-lg">{{ sprintf('%d:%02d', intdiv($entry->total_minutes, 60), $entry->total_minutes % 60) }}</p>
+                        @if ($entry->ends_at)
+                            <p class="font-mono font-bold text-white text-lg">{{ sprintf('%d:%02d', intdiv($entry->total_minutes, 60), $entry->total_minutes % 60) }}</p>
+                        @else
+                            <p class="font-mono font-bold text-white text-lg">
+                                <span class="text-xs font-normal text-amber-400 font-sans italic">In progress</span>
+                            </p>
+                        @endif
                     </div>
                 </div>
 
@@ -74,45 +80,78 @@
 
         {{-- EDIT + APPROVE/REJECT --}}
         <div class="grid md:grid-cols-2 gap-5">
-            {{-- EDIT FORM --}}
-            <div class="card">
-                <div class="card-header flex items-center gap-2">
-                    <svg class="w-4 h-4 text-dark-400" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" /></svg>
-                    <h3 class="font-semibold text-white text-sm">Edit Entry</h3>
-                </div>
-                <div class="card-body">
-                    <form method="POST" action="{{ route('admin.timesheets.update', $entry) }}" class="space-y-4">
-                        @csrf @method('PUT')
-                        <input type="hidden" name="branch_id" value="{{ $entry->branch_id }}">
+            @if ($entry->ends_at)
+                {{-- EDIT FORM --}}
+                <div class="card">
+                    <div class="card-header flex items-center gap-2">
+                        <svg class="w-4 h-4 text-dark-400" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" /></svg>
+                        <h3 class="font-semibold text-white text-sm">Edit Entry</h3>
+                    </div>
+                    <div class="card-body">
+                        <form method="POST" action="{{ route('admin.timesheets.update', $entry) }}" class="space-y-4">
+                            @csrf @method('PUT')
+                            <input type="hidden" name="branch_id" value="{{ $entry->branch_id }}">
 
-                        <div>
-                            <x-input-label for="work_date" value="Work Date" />
-                            <x-text-input type="date" name="work_date" id="work_date" :value="$entry->work_date->toDateString()" required />
-                        </div>
+                            <div>
+                                <x-input-label for="work_date" value="Work Date" />
+                                <x-text-input type="date" name="work_date" id="work_date" :value="$entry->work_date->toDateString()" required />
+                            </div>
+                            <div class="grid grid-cols-2 gap-3">
+                                <div>
+                                    <x-input-label for="start_time" value="Start Time" />
+                                    <x-text-input type="time" step="900" name="start_time" id="start_time" :value="$entry->starts_at?->timezone(App\Support\BranchTime::timezoneFor($entry->branch))->format('H:i')" required />
+                                </div>
+                                <div>
+                                    <x-input-label for="end_time" value="End Time" />
+                                    <x-text-input type="time" step="900" name="end_time" id="end_time" :value="$entry->ends_at?->timezone(App\Support\BranchTime::timezoneFor($entry->branch))->format('H:i')" required />
+                                </div>
+                            </div>
+                            <div>
+                                <x-input-label for="admin_notes" value="Admin notes (optional)" />
+                                <textarea name="admin_notes" id="admin_notes" rows="2"
+                                          class="form-input resize-none">{{ old('admin_notes', '') }}</textarea>
+                            </div>
+
+                            <x-primary-button class="w-full justify-center">
+                                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
+                                Save Changes
+                            </x-primary-button>
+                            <p class="text-xs text-dark-500 text-center">Substantive edits to approved entries return them to Pending Approval.</p>
+                        </form>
+                    </div>
+                </div>
+            @else
+                {{-- ACTIVE / INCOMPLETE CLOCK-IN DETAILS --}}
+                <div class="card">
+                    <div class="card-header flex items-center gap-2">
+                        <svg class="w-4 h-4 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                        <h3 class="font-semibold text-white text-sm">Active Shift Details</h3>
+                    </div>
+                    <div class="card-body space-y-4">
                         <div class="grid grid-cols-2 gap-3">
                             <div>
-                                <x-input-label for="start_time" value="Start Time" />
-                                <x-text-input type="time" step="900" name="start_time" id="start_time" :value="$entry->starts_at->timezone('Canada/Pacific')->format('H:i')" required />
+                                <p class="text-dark-400 text-xs mb-1">Start Time</p>
+                                <p class="font-mono font-medium text-white text-sm">
+                                    {{ $entry->starts_at?->timezone(App\Support\BranchTime::timezoneFor($entry->branch))->format('g:i A') }}
+                                    <span class="text-dark-400 text-xs">({{ $entry->starts_at?->timezone(App\Support\BranchTime::timezoneFor($entry->branch))->format('H:i') }})</span>
+                                </p>
                             </div>
                             <div>
-                                <x-input-label for="end_time" value="End Time" />
-                                <x-text-input type="time" step="900" name="end_time" id="end_time" :value="$entry->ends_at->timezone('Canada/Pacific')->format('H:i')" required />
+                                <p class="text-dark-400 text-xs mb-1">End Time</p>
+                                <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+                                    <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                                    Not clocked out yet
+                                </span>
                             </div>
                         </div>
-                        <div>
-                            <x-input-label for="admin_notes" value="Admin notes (optional)" />
-                            <textarea name="admin_notes" id="admin_notes" rows="2"
-                                      class="form-input resize-none">{{ old('admin_notes', '') }}</textarea>
-                        </div>
 
-                        <x-primary-button class="w-full justify-center">
-                            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
-                            Save Changes
-                        </x-primary-button>
-                        <p class="text-xs text-dark-500 text-center">Substantive edits to approved entries return them to Pending Approval.</p>
-                    </form>
+                        <div class="rounded-lg bg-dark-700/40 border border-dark-600/40 p-3 text-xs text-dark-300 flex items-start gap-2.5">
+                            <svg class="w-4 h-4 text-amber-400 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" /></svg>
+                            <span>This timesheet entry is currently active (clocked in). Incomplete entries cannot be edited until the employee clocks out.</span>
+                        </div>
+                    </div>
                 </div>
-            </div>
+            @endif
 
             {{-- APPROVE / REJECT --}}
             <div class="space-y-4">
@@ -167,6 +206,16 @@
                             </div>
                         </div>
                     </div>
+                @elseif($entry->isCurrentlyClockedIn())
+                    <div class="card card-body">
+                        <div class="flex items-center gap-3 text-emerald-400">
+                            <svg class="w-8 h-8 shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                            <div>
+                                <p class="font-semibold">Currently Clocked In</p>
+                                <p class="text-xs text-dark-400">This shift is in progress and awaiting employee clock-out.</p>
+                            </div>
+                        </div>
+                    </div>
                 @endif
             </div>
         </div>
@@ -187,7 +236,7 @@
                             <div class="flex items-center gap-2 flex-wrap">
                                 <span class="text-sm font-medium text-white">{{ $log->action }}</span>
                                 <span class="text-xs text-dark-400">by {{ $log->performer->name }}</span>
-                                <span class="text-xs text-dark-500">{{ $log->created_at->timezone('Canada/Pacific')->format('M j, Y g:i A') }}</span>
+                                <span class="text-xs text-dark-500">{{ $log->created_at?->timezone(App\Support\BranchTime::timezoneFor($entry->branch))->format('M j, Y g:i A') }}</span>
                             </div>
                             @if($log->notes)
                                 <p class="text-xs text-dark-400 mt-0.5">{{ $log->notes }}</p>

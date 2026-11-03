@@ -395,36 +395,36 @@ class TimesheetIntegrityAndOverlapTest extends TestCase
         $this->assertEquals('2026-05-10', $entry->work_date->toDateString());
     }
 
-    public function test_nonexistent_spring_forward_dst_times_are_rejected(): void
+    public function test_times_during_former_spring_forward_dst_are_accepted_under_fixed_utc_minus_seven(): void
     {
         $service = app(TimesheetService::class);
 
-        // 2026-03-08 in America/Vancouver springs forward from 02:00 to 03:00
-        // 02:30 does not exist
-        $this->expectException(ValidationException::class);
-
-        $service->submit($this->employee, [
+        // Under fixed UTC-07:00 (Etc/GMT+7), 2026-03-08 02:30 exists and is accepted
+        $entry = $service->submit($this->employee, [
             'branch_id' => $this->vancouver->id,
             'work_date' => '2026-03-08',
             'start_time' => '02:30',
             'end_time' => '06:00',
         ]);
+
+        $this->assertNotNull($entry->id);
+        $this->assertEquals(210, $entry->total_minutes);
     }
 
-    public function test_ambiguous_fall_back_dst_times_are_rejected(): void
+    public function test_times_during_former_fall_back_dst_are_accepted_under_fixed_utc_minus_seven(): void
     {
         $service = app(TimesheetService::class);
 
-        // 2026-11-01 in America/Vancouver falls back from 02:00 to 01:00
-        // 01:30 repeats and is ambiguous
-        $this->expectException(ValidationException::class);
-
-        $service->submit($this->employee, [
+        // Under fixed UTC-07:00 (Etc/GMT+7), 2026-11-01 01:30 is unambiguous and accepted
+        $entry = $service->submit($this->employee, [
             'branch_id' => $this->vancouver->id,
             'work_date' => '2026-11-01',
             'start_time' => '01:30',
             'end_time' => '06:00',
         ]);
+
+        $this->assertNotNull($entry->id);
+        $this->assertEquals(270, $entry->total_minutes);
     }
 
     public function test_locking_order_user_row_first_then_entry_in_approval_and_rejection(): void
