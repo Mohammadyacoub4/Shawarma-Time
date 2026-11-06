@@ -28,25 +28,29 @@
     <div>
         <x-input-label for="work_date" value="Work date (local branch date)" />
         <x-text-input type="date" name="work_date" id="work_date" class="mt-1 w-full" :value="old('work_date', optional($entry?->work_date)->toDateString())" required />
+        <x-input-error :messages="$errors->get('work_date')" class="mt-1" />
     </div>
 
     <div class="grid grid-cols-2 gap-3">
         <div>
             <x-input-label for="start_time" value="Actual start time" />
-            <x-text-input type="time" step="900" name="start_time" id="start_time" class="mt-1 w-full" :value="old('start_time', isset($entry) ? $entry->starts_at->timezone(App\Support\BranchTime::timezoneFor($entry->branch))->format('H:i') : '')" required />
+            <x-text-input type="time" step="60" name="start_time" id="start_time" class="mt-1 w-full" :value="old('start_time', isset($entry) ? $entry->starts_at->timezone(App\Support\BranchTime::timezoneFor($entry->branch))->format('H:i') : '')" required />
+            <x-input-error :messages="$errors->get('start_time')" class="mt-1" />
         </div>
         <div>
             <x-input-label for="end_time" value="Actual end time" />
-            <x-text-input type="time" step="900" name="end_time" id="end_time" class="mt-1 w-full" :value="old('end_time', isset($entry) ? $entry->ends_at->timezone(App\Support\BranchTime::timezoneFor($entry->branch))->format('H:i') : '')" required />
+            <x-text-input type="time" step="60" name="end_time" id="end_time" class="mt-1 w-full" :value="old('end_time', isset($entry) ? $entry->ends_at->timezone(App\Support\BranchTime::timezoneFor($entry->branch))->format('H:i') : '')" required />
+            <x-input-error :messages="$errors->get('end_time')" class="mt-1" />
         </div>
     </div>
 
     <div>
         <x-input-label for="employee_notes" value="Notes (optional)" />
         <textarea name="employee_notes" id="employee_notes" rows="3" class="mt-1 w-full rounded-md border-gray-300">{{ old('employee_notes', $entry?->employee_notes) }}</textarea>
+        <x-input-error :messages="$errors->get('employee_notes')" class="mt-1" />
     </div>
 
-    <p class="text-xs text-gray-500">Enter start and end times in 15-minute increments. Total hours are calculated on the server. Overnight shifts are supported.</p>
+    <p class="text-xs text-gray-500">Enter actual start and end times. Total hours are calculated on the server. Overnight shifts are supported.</p>
 
     <x-primary-button>{{ $submitLabel }}</x-primary-button>
 </form>

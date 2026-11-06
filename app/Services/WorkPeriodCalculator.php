@@ -11,13 +11,54 @@ use Illuminate\Validation\ValidationException;
 class WorkPeriodCalculator
 {
     /**
+     * Calculate period for actual timesheet entries (minute-level precision).
+     *
      * @return array{starts_at: Carbon, ends_at: Carbon, total_minutes: int, work_date: string}
      * @throws ValidationException
      */
-    public function fromStartEnd(string $workDate, string $startTime, string $endTime, ?Branch $branch = null): array
+    public function fromTimesheetStartEnd(string $workDate, string $startTime, string $endTime, ?Branch $branch = null): array
     {
-        $this->assertQuarterHour($startTime, 'start_time');
-        $this->assertQuarterHour($endTime, 'end_time');
+        return $this->calculatePeriod($workDate, $startTime, $endTime, $branch, enforceQuarterHour: false);
+    }
+
+    /**
+     * Calculate period for scheduled shifts (strictly enforcing 15-minute increments).
+     *
+     * @return array{starts_at: Carbon, ends_at: Carbon, total_minutes: int, work_date: string}
+     * @throws ValidationException
+     */
+    public function fromShiftStartEnd(string $workDate, string $startTime, string $endTime, ?Branch $branch = null): array
+    {
+        return $this->calculatePeriod($workDate, $startTime, $endTime, $branch, enforceQuarterHour: true);
+    }
+
+    /**
+     * Calculate work period from start and end time strings.
+     * Preserves backwards compatibility with any callers expecting quarter-hour enforcement by default.
+     *
+     * @return array{starts_at: Carbon, ends_at: Carbon, total_minutes: int, work_date: string}
+     * @throws ValidationException
+     */
+    public function fromStartEnd(string $workDate, string $startTime, string $endTime, ?Branch $branch = null, bool $enforceQuarterHour = true): array
+    {
+        return $this->calculatePeriod($workDate, $startTime, $endTime, $branch, $enforceQuarterHour);
+    }
+
+    /**
+     * Core calculation engine.
+     *
+     * @return array{starts_at: Carbon, ends_at: Carbon, total_minutes: int, work_date: string}
+     * @throws ValidationException
+     */
+    public function calculatePeriod(string $workDate, string $startTime, string $endTime, ?Branch $branch = null, bool $enforceQuarterHour = false): array
+    {
+        if ($enforceQuarterHour) {
+            $this->assertQuarterHour($startTime, 'start_time');
+            $this->assertQuarterHour($endTime, 'end_time');
+        } else {
+            $this->assertValidTimeFormat($startTime, 'start_time');
+            $this->assertValidTimeFormat($endTime, 'end_time');
+        }
 
         // Disallow equal start and end time
         if ($startTime === $endTime) {
@@ -63,14 +104,20 @@ class WorkPeriodCalculator
         ];
     }
 
-    public function assertQuarterHour(string $time, string $fieldName = 'time'): void
+    public function assertValidTimeFormat(string $time, string $fieldName = 'time'): void
     {
-        if (! preg_match('/^(\d{1,2}):(\d{2})$/', $time, $m)) {
+        if (! preg_match('/^(?:[01]?\d|2[0-3]):[0-5]\d$/', $time)) {
             throw ValidationException::withMessages([
                 $fieldName => ['يجب أن يكون الوقت بصيغة H:i / Time must be in H:i format.'],
             ]);
         }
+    }
 
+    public function assertQuarterHour(string $time, string $fieldName = 'time'): void
+    {
+        $this->assertValidTimeFormat($time, $fieldName);
+
+        preg_match('/^(\d{1,2}):(\d{2})$/', $time, $m);
         $minutes = (int) $m[2];
         if ($minutes % 15 !== 0) {
             throw ValidationException::withMessages([

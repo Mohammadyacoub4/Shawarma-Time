@@ -11,6 +11,7 @@ use App\Models\TimesheetAuditLog;
 use App\Models\TimesheetEntry;
 use App\Models\User;
 use App\Support\BranchTime;
+use Carbon\Carbon;
 use Database\Seeders\BranchSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -292,6 +293,8 @@ class ShawarmaApplicationTest extends TestCase
 
     public function test_admin_updating_clocked_in_timesheet_moves_to_pending_and_frees_employee(): void
     {
+        Carbon::setTestNow(BranchTime::toUtc(BranchTime::combineLocalDateAndTime('2026-11-02', '19:30', $this->richmond)));
+
         $admin = User::factory()->admin()->create();
         $employee = $this->makeEmployee([$this->richmond->id]);
 
@@ -329,6 +332,8 @@ class ShawarmaApplicationTest extends TestCase
         ])->assertRedirect(route('employee.dashboard'));
 
         $this->assertTrue($employee->fresh()->isClockedIn());
+
+        Carbon::setTestNow();
     }
 
     public function test_admin_cannot_clock_in_or_out_as_employee(): void

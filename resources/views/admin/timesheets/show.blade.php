@@ -94,22 +94,26 @@
 
                             <div>
                                 <x-input-label for="work_date" value="Work Date" />
-                                <x-text-input type="date" name="work_date" id="work_date" :value="$entry->work_date->toDateString()" required />
+                                <x-text-input type="date" name="work_date" id="work_date" :value="old('work_date', $entry->work_date->toDateString())" required />
+                                <x-input-error :messages="$errors->get('work_date')" class="mt-1" />
                             </div>
                             <div class="grid grid-cols-2 gap-3">
                                 <div>
                                     <x-input-label for="start_time" value="Start Time" />
-                                    <x-text-input type="time" step="900" name="start_time" id="start_time" :value="$entry->starts_at?->timezone(App\Support\BranchTime::timezoneFor($entry->branch))->format('H:i')" required />
+                                    <x-text-input type="time" step="60" name="start_time" id="start_time" :value="old('start_time', $entry->starts_at?->timezone(App\Support\BranchTime::timezoneFor($entry->branch))->format('H:i'))" required />
+                                    <x-input-error :messages="$errors->get('start_time')" class="mt-1" />
                                 </div>
                                 <div>
                                     <x-input-label for="end_time" value="End Time" />
-                                    <x-text-input type="time" step="900" name="end_time" id="end_time" :value="$entry->ends_at?->timezone(App\Support\BranchTime::timezoneFor($entry->branch))->format('H:i')" required />
+                                    <x-text-input type="time" step="60" name="end_time" id="end_time" :value="old('end_time', $entry->ends_at?->timezone(App\Support\BranchTime::timezoneFor($entry->branch))->format('H:i'))" required />
+                                    <x-input-error :messages="$errors->get('end_time')" class="mt-1" />
                                 </div>
                             </div>
                             <div>
                                 <x-input-label for="admin_notes" value="Admin notes (optional)" />
                                 <textarea name="admin_notes" id="admin_notes" rows="2"
                                           class="form-input resize-none">{{ old('admin_notes', '') }}</textarea>
+                                <x-input-error :messages="$errors->get('admin_notes')" class="mt-1" />
                             </div>
 
                             <x-primary-button class="w-full justify-center">

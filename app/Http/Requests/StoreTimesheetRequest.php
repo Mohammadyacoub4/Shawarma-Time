@@ -21,8 +21,8 @@ class StoreTimesheetRequest extends FormRequest
             'branch_id' => ['required', 'integer', 'exists:branches,id'],
             'shift_id' => ['nullable', 'integer', 'exists:shifts,id'],
             'work_date' => ['required', 'date'],
-            'start_time' => ['required', 'regex:/^\d{1,2}:\d{2}$/'],
-            'end_time' => ['required', 'regex:/^\d{1,2}:\d{2}$/'],
+            'start_time' => ['required', 'regex:/^(?:[01]?\d|2[0-3]):[0-5]\d$/'],
+            'end_time' => ['required', 'regex:/^(?:[01]?\d|2[0-3]):[0-5]\d$/'],
             'employee_notes' => ['nullable', 'string', 'max:2000'],
         ];
     }

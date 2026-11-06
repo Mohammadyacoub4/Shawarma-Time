@@ -227,7 +227,7 @@ class TimesheetService
                 throw new InvalidArgumentException('Employee is not assigned to this branch.');
             }
 
-            $period = $this->calculator->fromStartEnd(
+            $period = $this->calculator->fromTimesheetStartEnd(
                 $data['work_date'],
                 $data['start_time'],
                 $data['end_time'],
@@ -319,7 +319,7 @@ class TimesheetService
             $targetBranchId = (int) $data['branch_id'];
             $targetBranch = Branch::findOrFail($targetBranchId);
 
-            $period = $this->calculator->fromStartEnd(
+            $period = $this->calculator->fromTimesheetStartEnd(
                 $data['work_date'],
                 $data['start_time'],
                 $data['end_time'],
@@ -346,34 +346,42 @@ class TimesheetService
                 }
             }
 
-            // STEP 3 & STEP 7: Check overlap excluding the edited entry
-            $this->overlapValidator->validate(
-                userId: $lockedUser->id,
-                startsAtUtc: $period['starts_at'],
-                endsAtUtc: $period['ends_at'],
-                ignoreEntryId: $lockedEntry->id,
-                shiftId: $shiftId
-            );
-
             $substantiveChange = $this->isSubstantiveChange($lockedEntry, $period, $targetBranchId, $shiftId);
 
-            $lockedEntry->fill([
-                'branch_id' => $targetBranchId,
-                'shift_id' => $shiftId,
-                'work_date' => $period['work_date'],
-                'starts_at' => $period['starts_at'],
-                'ends_at' => $period['ends_at'],
-                'total_minutes' => $period['total_minutes'],
-                'employee_notes' => $data['employee_notes'] ?? $lockedEntry->employee_notes,
-            ]);
+            if ($substantiveChange) {
+                // STEP 3 & STEP 7: Check overlap excluding the edited entry only when substantive changes occur
+                $this->overlapValidator->validate(
+                    userId: $lockedUser->id,
+                    startsAtUtc: $period['starts_at'],
+                    endsAtUtc: $period['ends_at'],
+                    ignoreEntryId: $lockedEntry->id,
+                    shiftId: $shiftId
+                );
 
-            // STEP 7: Reset approval status only on substantive changes or if currently clocked_in
-            if ($lockedEntry->status === TimesheetStatus::ClockedIn
-                || ($substantiveChange && $lockedEntry->status === TimesheetStatus::Approved)) {
-                $lockedEntry->status = TimesheetStatus::PendingApproval;
-                $lockedEntry->rejection_reason = null;
-                $lockedEntry->reviewed_by = null;
-                $lockedEntry->reviewed_at = null;
+                $lockedEntry->fill([
+                    'branch_id' => $targetBranchId,
+                    'shift_id' => $shiftId,
+                    'work_date' => $period['work_date'],
+                    'starts_at' => $period['starts_at'],
+                    'ends_at' => $period['ends_at'],
+                    'total_minutes' => $period['total_minutes'],
+                    'employee_notes' => $data['employee_notes'] ?? $lockedEntry->employee_notes,
+                ]);
+
+                // STEP 7: Reset approval status only on substantive changes or if currently clocked_in
+                if ($lockedEntry->status === TimesheetStatus::ClockedIn
+                    || $lockedEntry->status === TimesheetStatus::Approved) {
+                    $lockedEntry->status = TimesheetStatus::PendingApproval;
+                    $lockedEntry->rejection_reason = null;
+                    $lockedEntry->reviewed_by = null;
+                    $lockedEntry->reviewed_at = null;
+                }
+            } else {
+                // Non-substantive update (e.g. notes or metadata only):
+                // Preserve exact stored timestamps (seconds), duration, and approval metadata.
+                if (isset($data['employee_notes'])) {
+                    $lockedEntry->employee_notes = $data['employee_notes'];
+                }
             }
 
             $lockedEntry->save();
@@ -462,12 +470,32 @@ class TimesheetService
      */
     private function isSubstantiveChange(TimesheetEntry $entry, array $period, int $branchId, ?int $shiftId): bool
     {
-        return $entry->branch_id !== $branchId
-            || $entry->shift_id !== $shiftId
-            || $entry->work_date->toDateString() !== $period['work_date']
-            || ! $entry->starts_at->equalTo($period['starts_at'])
-            || ! $entry->ends_at?->equalTo($period['ends_at'])
-            || $entry->total_minutes !== $period['total_minutes'];
+        if ($entry->branch_id !== $branchId || $entry->shift_id !== $shiftId) {
+            return true;
+        }
+
+        if ($entry->work_date->toDateString() !== $period['work_date']) {
+            return true;
+        }
+
+        $branch = $entry->branch ?? Branch::find($branchId);
+        $tz = BranchTime::timezoneFor($branch);
+
+        $entryStartMinute = $entry->starts_at?->copy()->timezone($tz)->format('Y-m-d H:i');
+        $periodStartMinute = $period['starts_at']?->copy()->timezone($tz)->format('Y-m-d H:i');
+
+        if ($entryStartMinute !== $periodStartMinute) {
+            return true;
+        }
+
+        $entryEndMinute = $entry->ends_at?->copy()->timezone($tz)->format('Y-m-d H:i');
+        $periodEndMinute = $period['ends_at']?->copy()->timezone($tz)->format('Y-m-d H:i');
+
+        if ($entryEndMinute !== $periodEndMinute) {
+            return true;
+        }
+
+        return false;
     }
 
     /**

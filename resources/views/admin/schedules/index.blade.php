@@ -400,11 +400,11 @@
                 <div class="grid grid-cols-2 gap-3">
                     <div>
                         <x-input-label for="batch_start_time" :value="app()->getLocale() === 'ar' ? 'وقت البدء' : 'Start Time'" />
-                        <x-text-input type="time" name="start_time" id="batch_start_time" value="09:00" required class="text-xs w-full" />
+                        <x-text-input type="time" step="900" name="start_time" id="batch_start_time" value="09:00" required class="text-xs w-full" />
                     </div>
                     <div>
                         <x-input-label for="batch_end_time" :value="app()->getLocale() === 'ar' ? 'وقت الانتهاء' : 'End Time'" />
-                        <x-text-input type="time" name="end_time" id="batch_end_time" value="17:00" required class="text-xs w-full" />
+                        <x-text-input type="time" step="900" name="end_time" id="batch_end_time" value="17:00" required class="text-xs w-full" />
                     </div>
                 </div>
 
@@ -469,11 +469,11 @@
                 <div class="grid grid-cols-2 gap-3">
                     <div>
                         <x-input-label for="single_start_time" :value="app()->getLocale() === 'ar' ? 'وقت البدء' : 'Start Time'" />
-                        <x-text-input type="time" name="start_time" id="single_start_time" value="09:00" required class="text-xs w-full" />
+                        <x-text-input type="time" step="900" name="start_time" id="single_start_time" value="09:00" required class="text-xs w-full" />
                     </div>
                     <div>
                         <x-input-label for="single_end_time" :value="app()->getLocale() === 'ar' ? 'وقت الانتهاء' : 'End Time'" />
-                        <x-text-input type="time" name="end_time" id="single_end_time" value="17:00" required class="text-xs w-full" />
+                        <x-text-input type="time" step="900" name="end_time" id="single_end_time" value="17:00" required class="text-xs w-full" />
                     </div>
                 </div>
 

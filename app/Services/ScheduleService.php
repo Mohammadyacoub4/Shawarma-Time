@@ -34,7 +34,7 @@ class ScheduleService
                 throw new InvalidArgumentException('Employee is not assigned to this branch.');
             }
 
-            $period = $this->calculator->fromStartEnd(
+            $period = $this->calculator->fromShiftStartEnd(
                 $data['work_date'],
                 $data['start_time'],
                 $data['end_time'],
@@ -91,7 +91,7 @@ class ScheduleService
             $days = (array) ($data['days'] ?? []);
 
             foreach ($days as $dateString) {
-                $period = $this->calculator->fromStartEnd(
+                $period = $this->calculator->fromShiftStartEnd(
                     $dateString,
                     $data['start_time'],
                     $data['end_time'],
@@ -153,7 +153,7 @@ class ScheduleService
                 $startTime = $oldShift->starts_at->timezone(BranchTime::timezoneFor($branch))->format('H:i');
                 $endTime = $oldShift->ends_at->timezone(BranchTime::timezoneFor($branch))->format('H:i');
 
-                $period = $this->calculator->fromStartEnd(
+                $period = $this->calculator->fromShiftStartEnd(
                     $newWorkDate,
                     $startTime,
                     $endTime,
